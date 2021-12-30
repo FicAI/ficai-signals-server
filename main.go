@@ -14,6 +14,21 @@ import (
 
 var db *sql.DB
 
+type getQ struct {
+	Url string `form:"url"`
+}
+
+type getTagInfo struct {
+	Tag            string `json:"tag"`
+	Signal         *bool  `json:"signal"`
+	SignalsFor     int32  `json:"signalsFor"`
+	SignalsAgainst int32  `json:"signalsAgainst"`
+}
+
+type getA struct {
+	Tags []getTagInfo `json:"tags"`
+}
+
 type patchQ struct {
 	Url   string   `json:"url"`
 	Add   []string `json:"add"`
@@ -21,8 +36,63 @@ type patchQ struct {
 	Erase []string `json:"erase"`
 }
 
-func patchSignals(c *gin.Context) {
+func getSignals(c *gin.Context) {
+	uid, err := c.Cookie("FicAiUid")
+	if err != nil {
+		c.AbortWithError(http.StatusForbidden, err)
+		return
+	}
 
+	var q getQ
+	if err := c.BindQuery(&q); err != nil {
+		return
+	}
+	rows, err := db.Query(
+		`
+select
+	tag,
+	sum(iif(signal, 1, 0)) as total_for,
+    sum(iif(not signal, 1, 0)) as total_against,
+    sum(signal) filter (where user_id = ?) as my_signal
+from signal
+where url = ?
+group by tag
+`,
+		uid, q.Url,
+	)
+	if err != nil {
+		c.AbortWithError(http.StatusInternalServerError, err)
+		return
+	}
+	defer rows.Close()
+
+	tags := make([]getTagInfo, 0)
+	for rows.Next() {
+		var (
+			tag           string
+			total_for     int32
+			total_against int32
+			my_signal     sql.NullBool
+		)
+		if err := rows.Scan(&tag, &total_for, &total_against, &my_signal); err != nil {
+			c.AbortWithError(http.StatusInternalServerError, err)
+			return
+		}
+		tagInfo := getTagInfo{
+			Tag:            tag,
+			Signal:         nil,
+			SignalsFor:     total_for,
+			SignalsAgainst: total_against,
+		}
+		if my_signal.Valid {
+			tagInfo.Signal = &my_signal.Bool
+		}
+		tags = append(tags, tagInfo)
+	}
+	c.IndentedJSON(http.StatusOK, getA{tags})
+}
+
+func patchSignals(c *gin.Context) {
 	uid, err := c.Cookie("FicAiUid")
 	if err != nil {
 		c.AbortWithError(http.StatusForbidden, err)
@@ -78,7 +148,7 @@ func patchSignals(c *gin.Context) {
 		}
 	}
 
-	c.IndentedJSON(http.StatusCreated, q)
+	c.AbortWithStatus(http.StatusNoContent)
 }
 
 func main() {
@@ -91,6 +161,7 @@ func main() {
 	defer db.Close()
 
 	router := gin.Default()
+	router.GET("/v1/signals", getSignals)
 	router.PATCH("/v1/signals", patchSignals)
 
 	srv := &http.Server{
