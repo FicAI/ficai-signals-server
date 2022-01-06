@@ -1,5 +1,6 @@
 *.sql
 !schema.sql
 *.db
+*.db-journal
 
 *.http
