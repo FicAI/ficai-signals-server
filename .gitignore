@@ -1,6 +1,11 @@
 *.sql
 !schema.sql
+
 *.db
 *.db-journal
+
+/target
+
+/test.log
 
 *.http
