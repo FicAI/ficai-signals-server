@@ -1,11 +1,11 @@
-create table user (
-    id integer primary key autoincrement
+create table "user" (
+    id bigint primary key
 );
 
 create table signal (
-    user_id integer not null references user(id)
-  , url text not null
-  , tag text not null
-  , signal int not null
+    user_id bigint not null references "user"(id)
+  , url varchar(1024) not null
+  , tag varchar(1024) not null
+  , signal boolean not null
   , primary key (user_id, url, tag)
 );

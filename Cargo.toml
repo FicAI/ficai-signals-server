@@ -1,0 +1,15 @@
+[package]
+name = "ficai-signals-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+envy = "0.4"
+eyre = "0.6"
+futures = "0.3"
+http = "0.2"
+hyper = "0.14"
+serde = { version = "1", features = ["derive"]}
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+sqlx = { version = "0.5", features = ["runtime-tokio-native-tls", "postgres"] }
+warp = "0.3"

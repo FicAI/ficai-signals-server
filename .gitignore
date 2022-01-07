@@ -1,6 +1,7 @@
 *.sql
 !schema.sql
-*.db
-*.db-journal
 
-*.http
+/target
+
+/test.env
+/test.log
