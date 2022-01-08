@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::ops::Deref;
 use base64ct::Encoding as _;
 use cookie::Cookie;
 use http::{Response, StatusCode};
@@ -25,7 +27,12 @@ pub struct CreateUserQ {
     password: String,
 }
 
-pub async fn create_user<'ctx>(q: CreateUserQ, pool: DB, pepper: impl AsRef<Vec<u8>>, domain: impl AsRef<String>) -> Response<Body> {
+pub async fn create_user(
+    q: CreateUserQ,
+    pool: DB,
+    pepper: impl Deref<Target=impl AsRef<[u8]>>,
+    domain: impl Deref<Target=impl Clone + Into<Cow<'_, str>>>
+) -> Response<Body> {
     let hash = {
         use argon2::{Argon2, Algorithm::Argon2id, Version::V0x13, Params, PasswordHasher};
         use argon2::password_hash::SaltString;
@@ -33,7 +40,7 @@ pub async fn create_user<'ctx>(q: CreateUserQ, pool: DB, pepper: impl AsRef<Vec<
         let kdf = {
             // https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id
             let params = Params::new(37 * 1024, 1, 1, Some(32)).unwrap();
-            Argon2::new_with_secret(pepper.as_ref().as_slice(), Argon2id, V0x13, params).unwrap()
+            Argon2::new_with_secret(pepper.as_ref(), Argon2id, V0x13, params).unwrap()
         };
         let salt = SaltString::generate(OsRng);
         match kdf.hash_password(q.password.as_bytes(), &salt) {
@@ -86,7 +93,7 @@ pub async fn create_user<'ctx>(q: CreateUserQ, pool: DB, pepper: impl AsRef<Vec<
     }
     let session_id_string = base64ct::Base64Unpadded::encode_string(&session_id);
     let session_id_cookie = Cookie::build(SESSION_COOKIE_NAME, session_id_string)
-        .domain(domain.as_ref())
+        .domain(domain.clone())
         .path("/")
         .secure(true)
         .http_only(true)
