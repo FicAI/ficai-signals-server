@@ -13,3 +13,5 @@ The server expects the following environment variables to be set:
 * `FICAI_DB_USERNAME` is the user name for DB access
 * `FICAI_DB_PASSWORD` is the password for the abovementioned user
 * `FICAI_DB_DATABASE` is the name of the database in which the server's tables must be present
+* `FICAI_PWD_PEPPER` is the pepper value for password hashes. Read more at https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering
+* `FICAI_DOMAIN` is the domain the service will be accessible on. Used for the session ID cookie
