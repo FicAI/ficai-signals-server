@@ -1,18 +1,20 @@
 use std::borrow::Cow;
 use std::ops::Deref;
+
 use base64ct::Encoding as _;
 use cookie::Cookie;
 use http::{Response, StatusCode};
 use http::header::SET_COOKIE;
 use hyper::Body;
 use rand_core::{OsRng, RngCore};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::Row as _;
+use warp::{Filter, Rejection};
 
 use crate::DB;
-use crate::httputil::{bad_request, internal_error};
+use crate::httputil::{bad_request, BadRequest, Forbidden, internal_error, InternalError};
 
-pub const SESSION_COOKIE_NAME: &str = "FicAiSession";
+const SESSION_COOKIE_NAME: &str = "FicAiSession";
 
 const CONSTRAINT_VIOLATION_SQLSTATE: &str = "23505";
 
@@ -106,4 +108,33 @@ pub async fn create_user(
         .header(SET_COOKIE, session_id_cookie)
         .body(Body::empty())
         .unwrap()
+}
+
+
+pub fn authenticate(db: DB) -> impl Filter<Extract=(i64,), Error=Rejection> + Clone {
+    warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
+        let db = db.clone();
+        async move {
+            let cookie = match cookie {
+                Some(cookie) => cookie,
+                None => return Err(warp::reject::custom(Forbidden)),
+            };
+            let cookie = match base64ct::Base64Unpadded::decode_vec(&cookie) {
+                Ok(cookie) => cookie,
+                Err(_) => return Err(warp::reject::custom(BadRequest("invalid auth cookie".into()))),
+            };
+
+            let row = sqlx::query("select user_id from session where id = $1")
+                .bind(cookie)
+                .fetch_one(&db)
+                .await;
+            match row {
+                Ok(row) => Ok(row.get::<i64, _>("user_id")),
+                Err(sqlx::error::Error::RowNotFound) => return Err(warp::reject::custom(Forbidden)),
+                Err(e) =>
+                    // todo: log e
+                    return Err(warp::reject::custom(InternalError)),
+            }
+        }
+    })
 }
