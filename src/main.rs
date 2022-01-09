@@ -61,7 +61,7 @@ async fn main() -> eyre::Result<()> {
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
-        .then({
+        .and_then({
             let pool = pool.clone();
             let pepper = pepper.clone();
             let domain = domain.clone();

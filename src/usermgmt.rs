@@ -13,7 +13,7 @@ use sqlx::Row as _;
 use warp::{Filter, Rejection};
 
 use crate::DB;
-use crate::httputil::{BadRequest, Forbidden, internal_error, InternalError};
+use crate::httputil::{AccountAlreadyExists, BadRequest, Forbidden, InternalError};
 
 const SESSION_COOKIE_NAME: &str = "FicAiSession";
 
@@ -85,7 +85,7 @@ pub async fn create_user(
     pool: DB,
     pepper: impl Deref<Target=impl AsRef<[u8]>>,
     domain: impl Deref<Target=impl Clone + Into<Cow<'_, str>>>
-) -> Response<Body> {
+) -> Result<Response<Body>, Rejection> {
     let hash = {
         let kdf = create_kdf(pepper.as_ref());
         let salt = argon2::password_hash::SaltString::generate(OsRng);
@@ -99,27 +99,28 @@ pub async fn create_user(
     let uid: i64 = match row {
         Ok(row) => row.get("id"),
         Err(sqlx::Error::Database(db_err)) if db_err.code() == Some(CONSTRAINT_VIOLATION_SQLSTATE.into()) =>
-            return Response::builder()
-                .status(StatusCode::CONFLICT)
-                .body("account already exists".into())
-                .unwrap(),
-        Err(e) =>
-            // todo: log e
-            return internal_error(Body::empty()),
+            return Err(warp::reject::custom(AccountAlreadyExists)),
+        Err(e) => {
+            eprintln!("{:?}", e);
+            return Err(warp::reject::custom(InternalError));
+        }
     };
 
     let session_id_string = match create_session(uid, &pool).await {
         Ok(session_id_string) => session_id_string,
-        Err(e) =>
-            // todo: log e
-            return internal_error(Body::empty()),
+        Err(e) => {
+            eprintln!("{:?}", e);
+            return Err(warp::reject::custom(InternalError));
+        }
     };
     let session_id_cookie = create_session_cookie(session_id_string, domain);
-    Response::builder()
-        .status(StatusCode::CREATED)
-        .header(SET_COOKIE, session_id_cookie)
-        .body(Body::empty())
-        .unwrap()
+    Ok(
+        Response::builder()
+            .status(StatusCode::CREATED)
+            .header(SET_COOKIE, session_id_cookie)
+            .body(Body::empty())
+            .unwrap()
+    )
 }
 
 
@@ -195,9 +196,10 @@ pub fn authenticate(db: DB) -> impl Filter<Extract=(i64,), Error=Rejection> + Cl
             match row {
                 Ok(row) => Ok(row.get::<i64, _>("user_id")),
                 Err(sqlx::error::Error::RowNotFound) => return Err(warp::reject::custom(Forbidden)),
-                Err(e) =>
-                    // todo: log e
-                    return Err(warp::reject::custom(InternalError)),
+                Err(e) => {
+                    eprintln!("{:?}", e);
+                    return Err(warp::reject::custom(InternalError));
+                }
             }
         }
     })
