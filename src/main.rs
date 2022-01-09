@@ -58,12 +58,23 @@ async fn main() -> eyre::Result<()> {
 
     let domain = Arc::new(cfg.domain);
 
-    let create_user = warp::path!("v1" / "account")
+    let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
         .then({
             let pool = pool.clone();
+            let pepper = pepper.clone();
+            let domain = domain.clone();
             move |q| crate::usermgmt::create_user(q, pool.clone(), pepper.clone(), domain.clone())
+        });
+    let log_in = warp::path!("v1" / "sessions")
+        .and(warp::post())
+        .and(warp::body::json::<crate::usermgmt::LogInQ>())
+        .and_then({
+            let pool = pool.clone();
+            let pepper = pepper.clone();
+            let domain = domain.clone();
+            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper.clone(), domain.clone())
         });
 
     let get = warp::path!("v1" / "signals")
@@ -85,7 +96,10 @@ async fn main() -> eyre::Result<()> {
 
     // todo: graceful shutdown
     warp::serve(
-        create_user.or(get).or(patch)
+        create_user
+            .or(log_in)
+            .or(get)
+            .or(patch)
             .recover(recover_custom)
     ).run(cfg.listen).await;
 

@@ -5,6 +5,7 @@ export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSW
 
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
+TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
 
 DEBUG=no
@@ -138,7 +139,7 @@ testUnauthorizedGet() {
 }
 
 testCreateUser() {
-  request "http://$FICAI_LISTEN/v1/account" \
+  request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
 
   assertEquals 'HTTP/1.1 201 Created' "$( headers_line 1 )"
@@ -146,7 +147,7 @@ testCreateUser() {
 }
 
 testCreateUserSecondTime() {
-  request "http://$FICAI_LISTEN/v1/account" \
+  request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
   assertEquals 'HTTP/1.1 409 Conflict' "$( headers_line 1 )"
   assertEquals 'account already exists' "$( show_output )"
@@ -182,6 +183,29 @@ testErase() {
   assertSignal worm true 1 0
   assertSignal "taylor hebert" true 1 0
   assertNoSignal taylor
+}
+
+testLogIn() {
+  rm test.cookies
+  request "http://$FICAI_LISTEN/v1/sessions" \
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
+
+  assertEquals 'HTTP/1.1 204 No Content' "$( headers_line 1 )"
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+}
+
+testLogInWithWrongEmail() {
+  request "http://$FICAI_LISTEN/v1/sessions" \
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL2\",\"password\":\"pass\"}"
+
+  assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
+}
+
+testLogInWithWrongPassword() {
+  request "http://$FICAI_LISTEN/v1/sessions" \
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"wrong pass\"}"
+
+  assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
 }
 
 source shunit2

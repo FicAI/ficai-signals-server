@@ -6,14 +6,6 @@ use warp::Rejection;
 use warp::reject::Reject;
 
 #[deprecated]
-pub fn bad_request(message: impl Into<Body>) -> Response<Body> {
-    Response::builder()
-        .status(StatusCode::BAD_REQUEST)
-        .body(message.into())
-        .unwrap()
-}
-
-#[deprecated]
 pub fn internal_error(message: impl Into<Body>) -> Response<Body> {
     Response::builder()
         .status(StatusCode::BAD_REQUEST)

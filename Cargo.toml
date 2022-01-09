@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-argon2 = "0.3"
+argon2 = { version = "0.3", features = ["std"] }
 base64ct = { version = "1", features = ["std"] }
 cookie = "0.16"
 envy = "0.4"
