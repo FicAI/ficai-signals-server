@@ -1,11 +1,21 @@
 use std::net::SocketAddr;
-use std::str::FromStr as _;
+use std::sync::Arc;
 
+use base64ct::Encoding as _;
+use eyre::{eyre, WrapErr};
 use futures::TryStreamExt as _;
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres, Row as _};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use sqlx::Row as _;
 use warp::{Filter as _, Reply};
+
+use crate::httputil::recover_custom;
+use crate::usermgmt::authenticate;
+
+mod httputil;
+mod usermgmt;
+
+pub type DB = sqlx::PgPool;
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -15,12 +25,15 @@ struct Config {
     db_username: String,
     db_password: String,
     db_database: String,
+    pwd_pepper: String,
+    domain: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> eyre::Result<()> {
     // todo: error handling
-    let cfg = envy::prefixed("FICAI_").from_env::<Config>().unwrap();
+    let cfg = envy::prefixed("FICAI_").from_env::<Config>()
+        .wrap_err("bad configuration")?;
 
     let conn_opt = PgConnectOptions::new()
         .host(&cfg.db_host)
@@ -36,26 +49,59 @@ async fn main() -> eyre::Result<()> {
         .max_connections(5)
         .connect_with(conn_opt)
         .await
-        .unwrap();
+        .map_err(|e| eyre!("failed to connect to database: {:?}", e))?;
 
-    let path_and_auth_filter = warp::path!("v1" / "signals").and(warp::cookie("FicAiUid"));
-    let get = {
-        let pool = pool.clone();
-        path_and_auth_filter
-            .and(warp::filters::method::get())
-            .and(warp::query::<GetQueryParams>())
-            .then(move |uid, q: GetQueryParams| get(uid, q.url, pool.clone()))
-    };
-    let patch = {
-        let pool = pool.clone();
-        path_and_auth_filter
-            .and(warp::filters::method::patch())
-            .and(warp::body::json::<PatchQuery>())
-            .then(move |uid, q: PatchQuery| patch(uid, q, pool.clone()))
-    };
+    let pepper = Arc::new(
+        base64ct::Base64Unpadded::decode_vec(&cfg.pwd_pepper)
+            .wrap_err("pepper is not valid base64")?
+    );
+
+    let domain = Arc::new(cfg.domain);
+
+    let create_user = warp::path!("v1" / "accounts")
+        .and(warp::post())
+        .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
+        .and_then({
+            let pool = pool.clone();
+            let pepper = pepper.clone();
+            let domain = domain.clone();
+            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper.clone(), domain.clone())
+        });
+    let log_in = warp::path!("v1" / "sessions")
+        .and(warp::post())
+        .and(warp::body::json::<crate::usermgmt::LogInQ>())
+        .and_then({
+            let pool = pool.clone();
+            let pepper = pepper.clone();
+            let domain = domain.clone();
+            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper.clone(), domain.clone())
+        });
+
+    let get = warp::path!("v1" / "signals")
+        .and(warp::get())
+        .and(authenticate(pool.clone()))
+        .and(warp::query::<GetQueryParams>())
+        .then({
+            let pool = pool.clone();
+            move |uid, q: GetQueryParams| get(uid, q.url, pool.clone())
+        });
+    let patch = warp::path!("v1" / "signals")
+        .and(warp::patch())
+        .and(authenticate(pool.clone()))
+        .and(warp::body::json::<PatchQuery>())
+        .then({
+            let pool = pool.clone();
+            move |uid, q: PatchQuery| patch(uid, q, pool.clone())
+        });
 
     // todo: graceful shutdown
-    warp::serve(get.or(patch)).run(cfg.listen).await;
+    warp::serve(
+        create_user
+            .or(log_in)
+            .or(get)
+            .or(patch)
+            .recover(recover_custom)
+    ).run(cfg.listen).await;
 
     Ok(())
 }
@@ -82,7 +128,7 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(uid_string: String, url: String, pool: Pool<Postgres>) -> http::Response<hyper::Body> {
+async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
     let mut rows = sqlx::query("
 select
 	tag,
@@ -93,7 +139,7 @@ from signal
 where url = $2
 group by tag
 ")
-        .bind(i64::from_str(&uid_string).unwrap())
+        .bind(uid)
         .bind(url)
         .fetch(&pool);
 
@@ -125,10 +171,8 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch(uid_string: String, q: PatchQuery, pool: Pool<Postgres>) -> impl Reply {
+async fn patch(uid: i64, q: PatchQuery, pool: DB) -> impl Reply {
     // todo: sane error handling
-
-    let uid = i64::from_str(&uid_string).unwrap();
 
     for tag in q.add {
         println!("add {}", &tag);
