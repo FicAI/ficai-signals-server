@@ -17,5 +17,5 @@ The server expects the following environment variables to be set:
 * `FICAI_DOMAIN` is the domain (no URL schema or port!) on which the service will be accessible. Used for the session ID cookie.
 
 [OWASP-PSCS]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering
-[Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#OWASP.CS.passwords
+[Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#section-4.2
 [RFC-4648]: https://datatracker.ietf.org/doc/html/rfc4648
