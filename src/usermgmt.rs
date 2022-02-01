@@ -78,6 +78,7 @@ fn create_session_cookie<'a>(
 pub struct CreateUserQ {
     email: String,
     password: String,
+    beta_key: String,
 }
 
 pub async fn create_user(
@@ -85,7 +86,11 @@ pub async fn create_user(
     pool: DB,
     pepper: impl Deref<Target = impl AsRef<[u8]>>,
     domain: impl Deref<Target = impl Clone + Into<Cow<'_, str>>>,
+    beta_key: impl Deref<Target = impl Clone + Into<Cow<'_, str>>>,
 ) -> Result<Response<Body>, Rejection> {
+    if q.beta_key != beta_key.clone().into() {
+        return Err(warp::reject::custom(BadRequest("invalid beta key".into())));
+    }
     let hash = {
         let kdf = create_kdf(pepper.as_ref());
         let salt = argon2::password_hash::SaltString::generate(OsRng);

@@ -27,6 +27,7 @@ struct Config {
     db_database: String,
     pwd_pepper: String,
     domain: String,
+    beta_key: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -58,6 +59,7 @@ async fn main() -> eyre::Result<()> {
     );
 
     let domain = Arc::new(cfg.domain);
+    let beta_key = Arc::new(cfg.beta_key);
 
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
@@ -66,7 +68,16 @@ async fn main() -> eyre::Result<()> {
             let pool = pool.clone();
             let pepper = pepper.clone();
             let domain = domain.clone();
-            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper.clone(), domain.clone())
+            let beta_key = beta_key.clone();
+            move |q| {
+                crate::usermgmt::create_user(
+                    q,
+                    pool.clone(),
+                    pepper.clone(),
+                    domain.clone(),
+                    beta_key.clone(),
+                )
+            }
         });
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
