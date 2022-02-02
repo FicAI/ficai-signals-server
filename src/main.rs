@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
@@ -53,40 +52,28 @@ async fn main() -> eyre::Result<()> {
         .await
         .map_err(|e| eyre!("failed to connect to database: {:?}", e))?;
 
-    let pepper = Arc::new(
+    let pepper: &'static [u8] = Box::leak(
         base64ct::Base64Unpadded::decode_vec(&cfg.pwd_pepper)
-            .wrap_err("pepper is not valid base64")?,
+            .wrap_err("pepper is not valid base64")?
+            .into_boxed_slice(),
     );
 
-    let domain = Arc::new(cfg.domain);
-    let beta_key = Arc::new(cfg.beta_key);
+    let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
+    let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
 
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
         .and_then({
             let pool = pool.clone();
-            let pepper = pepper.clone();
-            let domain = domain.clone();
-            let beta_key = beta_key.clone();
-            move |q| {
-                crate::usermgmt::create_user(
-                    q,
-                    pool.clone(),
-                    pepper.clone(),
-                    domain.clone(),
-                    beta_key.clone(),
-                )
-            }
+            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper, domain, beta_key)
         });
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::LogInQ>())
         .and_then({
             let pool = pool.clone();
-            let pepper = pepper.clone();
-            let domain = domain.clone();
-            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper.clone(), domain.clone())
+            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
 
     let get = warp::path!("v1" / "signals")

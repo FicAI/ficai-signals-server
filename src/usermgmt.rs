@@ -1,6 +1,3 @@
-use std::borrow::Cow;
-use std::ops::Deref;
-
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use base64ct::Encoding as _;
 use eyre::{bail, WrapErr};
@@ -59,10 +56,7 @@ async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
     Ok(base64ct::Base64Unpadded::encode_string(&session_id))
 }
 
-fn create_session_cookie<'a>(
-    session_id: String,
-    domain: impl Deref<Target = impl Clone + Into<Cow<'a, str>>>,
-) -> String {
+fn create_session_cookie<'a>(session_id: String, domain: &str) -> String {
     cookie::Cookie::build(SESSION_COOKIE_NAME, session_id)
         .domain(domain.clone())
         .path("/")
@@ -84,15 +78,15 @@ pub struct CreateUserQ {
 pub async fn create_user(
     q: CreateUserQ,
     pool: DB,
-    pepper: impl Deref<Target = impl AsRef<[u8]>>,
-    domain: impl Deref<Target = impl Clone + Into<Cow<'_, str>>>,
-    beta_key: impl Deref<Target = impl Clone + Into<Cow<'_, str>>>,
+    pepper: &[u8],
+    domain: &str,
+    beta_key: &str,
 ) -> Result<Response<Body>, Rejection> {
-    if q.beta_key != beta_key.clone().into() {
+    if q.beta_key != beta_key {
         return Err(warp::reject::custom(BadRequest("invalid beta key".into())));
     }
     let hash = {
-        let kdf = create_kdf(pepper.as_ref());
+        let kdf = create_kdf(pepper);
         let salt = argon2::password_hash::SaltString::generate(OsRng);
         kdf.hash_password(q.password.as_bytes(), &salt)
             .expect("failed to hash password")
@@ -142,8 +136,8 @@ pub struct LogInQ {
 pub async fn log_in(
     q: LogInQ,
     db: DB,
-    pepper: impl Deref<Target = impl AsRef<[u8]>>,
-    domain: impl Deref<Target = impl Clone + Into<Cow<'_, str>>>,
+    pepper: &[u8],
+    domain: &str,
 ) -> Result<Response<Body>, Rejection> {
     let row = sqlx::query(r#"select id, password_hash from "user" where email = $1"#)
         .bind(q.email)
@@ -159,7 +153,7 @@ pub async fn log_in(
     };
     let db_hash =
         PasswordHash::new(&db_hash_string).map_err(|_| warp::reject::custom(InternalError))?;
-    match create_kdf(pepper.as_ref()).verify_password(q.password.as_bytes(), &db_hash) {
+    match create_kdf(pepper).verify_password(q.password.as_bytes(), &db_hash) {
         Ok(_) => {}
         Err(argon2::password_hash::Error::Password) => return Err(warp::reject::custom(Forbidden)),
         Err(e) => {
