@@ -1,5 +1,4 @@
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
@@ -27,12 +26,14 @@ struct Config {
     db_database: String,
     pwd_pepper: String,
     domain: String,
+    beta_key: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> eyre::Result<()> {
     // todo: error handling
-    let cfg = envy::prefixed("FICAI_").from_env::<Config>()
+    let cfg = envy::prefixed("FICAI_")
+        .from_env::<Config>()
         .wrap_err("bad configuration")?;
 
     let conn_opt = PgConnectOptions::new()
@@ -51,30 +52,28 @@ async fn main() -> eyre::Result<()> {
         .await
         .map_err(|e| eyre!("failed to connect to database: {:?}", e))?;
 
-    let pepper = Arc::new(
+    let pepper: &'static [u8] = Box::leak(
         base64ct::Base64Unpadded::decode_vec(&cfg.pwd_pepper)
             .wrap_err("pepper is not valid base64")?
+            .into_boxed_slice(),
     );
 
-    let domain = Arc::new(cfg.domain);
+    let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
+    let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
 
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
         .and_then({
             let pool = pool.clone();
-            let pepper = pepper.clone();
-            let domain = domain.clone();
-            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper.clone(), domain.clone())
+            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper, domain, beta_key)
         });
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::LogInQ>())
         .and_then({
             let pool = pool.clone();
-            let pepper = pepper.clone();
-            let domain = domain.clone();
-            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper.clone(), domain.clone())
+            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
 
     let get = warp::path!("v1" / "signals")
@@ -100,12 +99,13 @@ async fn main() -> eyre::Result<()> {
             .or(log_in)
             .or(get)
             .or(patch)
-            .recover(recover_custom)
-    ).run(cfg.listen).await;
+            .recover(recover_custom),
+    )
+    .run(cfg.listen)
+    .await;
 
     Ok(())
 }
-
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -129,7 +129,8 @@ struct Tags {
 }
 
 async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
-    let mut rows = sqlx::query("
+    let mut rows = sqlx::query(
+        "
 select
 	tag,
 	sum(case when signal then 1 else 0 end) as total_for,
@@ -138,10 +139,11 @@ select
 from signal
 where url = $2
 group by tag
-")
-        .bind(uid)
-        .bind(url)
-        .fetch(&pool);
+",
+    )
+    .bind(uid)
+    .bind(url)
+    .fetch(&pool);
 
     let mut tags = Vec::new();
     while let Some(row) = rows.try_next().await.unwrap() {
@@ -149,7 +151,7 @@ group by tag
             tag: row.try_get("tag").unwrap(),
             signals_for: row.try_get("total_for").unwrap(),
             signals_against: row.try_get("total_against").unwrap(),
-            signal: row.try_get("my_signal").unwrap()
+            signal: row.try_get("my_signal").unwrap(),
         };
         tags.push(tag_info);
     }
@@ -157,7 +159,6 @@ group by tag
     let tags = Tags { tags };
     warp::reply::json(&tags).into_response()
 }
-
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -176,34 +177,38 @@ async fn patch(uid: i64, q: PatchQuery, pool: DB) -> impl Reply {
 
     for tag in q.add {
         println!("add {}", &tag);
-        sqlx::query("
+        sqlx::query(
+            "
 insert into signal (user_id, url, tag, signal)
 values ($1, $2, $3, $4)
 on conflict (user_id, url, tag) do update set signal = $4
-        ")
-            .bind(uid)
-            .bind(&q.url)
-            .bind(tag)
-            .bind(true)
-            .execute(&pool)
-            .await
-            .unwrap();
+        ",
+        )
+        .bind(uid)
+        .bind(&q.url)
+        .bind(tag)
+        .bind(true)
+        .execute(&pool)
+        .await
+        .unwrap();
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        sqlx::query("
+        sqlx::query(
+            "
 insert into signal (user_id, url, tag, signal)
 values ($1, $2, $3, $4)
 on conflict (user_id, url, tag) do update set signal = $4
-        ")
-            .bind(uid)
-            .bind(&q.url)
-            .bind(tag)
-            .bind(false)
-            .execute(&pool)
-            .await
-            .unwrap();
+        ",
+        )
+        .bind(uid)
+        .bind(&q.url)
+        .bind(tag)
+        .bind(false)
+        .execute(&pool)
+        .await
+        .unwrap();
     }
 
     for tag in q.erase {

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 source test.env
-export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN
+export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY
 
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
@@ -138,9 +138,17 @@ testUnauthorizedGet() {
   assertTrue "[[ ! -e \"$SHUNIT_TMPDIR/out\" ]]"
 }
 
+testCreateUserInvalidBetaKey() {
+  request "http://$FICAI_LISTEN/v1/accounts" \
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"x$FICAI_BETA_KEY\"}"
+
+  assertEquals 'HTTP/1.1 400 Bad Request' "$( headers_line 1 )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
 testCreateUser() {
   request "http://$FICAI_LISTEN/v1/accounts" \
-    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
 
   assertEquals 'HTTP/1.1 201 Created' "$( headers_line 1 )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
@@ -148,7 +156,7 @@ testCreateUser() {
 
 testCreateUserSecondTime() {
   request "http://$FICAI_LISTEN/v1/accounts" \
-    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
+    -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
   assertEquals 'HTTP/1.1 409 Conflict' "$( headers_line 1 )"
   assertEquals 'account already exists' "$( show_output )"
 }
