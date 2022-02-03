@@ -56,9 +56,9 @@ async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
     Ok(base64ct::Base64Unpadded::encode_string(&session_id))
 }
 
-fn create_session_cookie<'a>(session_id: String, domain: &str) -> String {
+fn create_session_cookie(session_id: String, domain: &str) -> String {
     cookie::Cookie::build(SESSION_COOKIE_NAME, session_id)
-        .domain(domain.clone())
+        .domain(domain)
         .path("/")
         .secure(true)
         .http_only(true)
