@@ -1,3 +1,5 @@
+/.idea
+
 *.sql
 !schema.sql
 
