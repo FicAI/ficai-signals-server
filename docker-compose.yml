@@ -19,9 +19,9 @@ services:
       - 'db_data:/var/lib/postgresql/data/'
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready", "-U", *USERNAME, "-d", *DATABASE ]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
       start_period: 10s
 
   ficai-signals:
@@ -31,7 +31,8 @@ services:
     security_opt:
       - no-new-privileges:true
     depends_on:
-      - ficai-db
+      ficai-db:
+        condition: service_healthy
     ports:
       - '8080:8080'
     env_file:
