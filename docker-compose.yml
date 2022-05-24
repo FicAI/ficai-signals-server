@@ -1,0 +1,47 @@
+version: '3.9'
+
+
+
+services:
+  ficai-db:
+    container_name: ficai-db
+    image: postgres:14-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - 5432
+    environment:
+      POSTGRES_DB: $FICAI_DB_DATABASE
+      POSTGRES_USER: $FICAI_DB_USERNAME
+      POSTGRES_PASSWORD: $FICAI_DB_PASSWORD
+    volumes:
+      - './schema.sql:/docker-entrypoint-initdb.d/schema.sql'
+      - 'db_data:/var/lib/postgresql/data/'
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $FICAI_DB_USERNAME -d $FICAI_DB_DATABASE" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  ficai-signals:
+    container_name: ficai-signals
+    build: .
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - ficai-db
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    # These env vars are docker-compose tuned
+    environment:
+      FICAI_DB_HOST: ficai-db
+      FICAI_DB_PORT: 5432
+
+
+volumes:
+  db_data:
