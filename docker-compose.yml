@@ -43,7 +43,7 @@ services:
       FICAI_DB_USERNAME: *USERNAME
       FICAI_DB_HOST: ficai-db
       FICAI_DB_PORT: 5432
-      FICAI_LISTEN: '127.0.0.1:8080'
+      FICAI_LISTEN: '0.0.0.0:8080'
 
 
 volumes:
