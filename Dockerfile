@@ -4,7 +4,7 @@ WORKDIR app
 
 FROM chef AS planner
 COPY src src/
-COPY Cargo.* .
+COPY Cargo.* ./
 RUN cargo chef prepare --recipe-path recipe.json
 
 
@@ -14,7 +14,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY src src/
-COPY Cargo.* .
+COPY Cargo.* ./
 RUN cargo build --release --bin ficai-signals-server
 
 
