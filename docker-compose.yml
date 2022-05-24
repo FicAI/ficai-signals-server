@@ -45,3 +45,8 @@ services:
 
 volumes:
   db_data:
+    name: ficai-db-data
+
+networks:
+  default:
+    name: ficai-default
