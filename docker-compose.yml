@@ -1,7 +1,6 @@
 version: '3.9'
 
 
-
 services:
   ficai-db:
     container_name: ficai-db
@@ -12,14 +11,14 @@ services:
     expose:
       - 5432
     environment:
-      POSTGRES_DB: $FICAI_DB_DATABASE
-      POSTGRES_USER: $FICAI_DB_USERNAME
+      POSTGRES_DB: &DATABASE ficai_database
+      POSTGRES_USER: &USERNAME ficai_admin
       POSTGRES_PASSWORD: $FICAI_DB_PASSWORD
     volumes:
       - './schema.sql:/docker-entrypoint-initdb.d/schema.sql'
       - 'db_data:/var/lib/postgresql/data/'
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U $FICAI_DB_USERNAME -d $FICAI_DB_DATABASE" ]
+      test: [ "CMD-SHELL", "pg_isready", "-U", *USERNAME, "-d", *DATABASE ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -39,8 +38,11 @@ services:
       - .env
     # These env vars are docker-compose tuned
     environment:
+      FICAI_DB_DATABASE: *DATABASE
+      FICAI_DB_USERNAME: *USERNAME
       FICAI_DB_HOST: ficai-db
       FICAI_DB_PORT: 5432
+      FICAI_LISTEN: '127.0.0.1:8080'
 
 
 volumes:
