@@ -22,6 +22,6 @@ The server expects the following environment variables to be set:
 [RFC-4648]: https://datatracker.ietf.org/doc/html/rfc4648
 
 # Running with docker-compose
-1. Create `.env` file based on `test.env.template` without `FICAI_DB_HOST` and `FICAI_DB_PORT` to set environment variables
+1. Create `.env` file based on `.env.template` to set environment variables
 2. Install Docker (or Docker Desktop for Mac/Windows)
-3. Run `docker-compose up -d --build`. SQL migrations in `schema.sql` will run automatically on first launch
+3. Run `docker-compose up -d --build`. First build might take a while, consequent builds will be faster. SQL migrations in `schema.sql` will run automatically on first launch
