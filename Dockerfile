@@ -21,6 +21,4 @@ RUN cargo build --release --bin ficai-signals-server
 FROM debian:bullseye-slim AS runtime
 WORKDIR app
 COPY --from=builder /app/target/release/ficai-signals-server /usr/local/bin
-COPY schema.sql .
-COPY test.sh .
 ENTRYPOINT ["/usr/local/bin/ficai-signals-server"]
