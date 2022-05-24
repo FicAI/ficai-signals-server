@@ -18,7 +18,7 @@ request() {
   else
     CURL_ARGS="-s"
   fi
-  curl $CURL_ARGS --fail-with-body -D "$SHUNIT_TMPDIR/headers" -o "$SHUNIT_TMPDIR/out" \
+  curl $CURL_ARGS -D "$SHUNIT_TMPDIR/headers" -o "$SHUNIT_TMPDIR/out" \
     --cookie test.cookies --cookie-jar test.cookies \
     "$@"
   CURL_RESULT="$?"
@@ -128,14 +128,14 @@ headers_line() {
 }
 
 test404() {
-  curl -s --fail-with-body -D "$SHUNIT_TMPDIR/headers" -o "$SHUNIT_TMPDIR/out" "http://$FICAI_LISTEN/derp"
+  curl -s -D "$SHUNIT_TMPDIR/headers" -o "$SHUNIT_TMPDIR/out" "http://$FICAI_LISTEN/derp"
   assertEquals 'HTTP/1.1 404 Not Found' "$( headers_line 1 )"
 }
 
 testUnauthorizedGet() {
   request_get
   assertEquals 'HTTP/1.1 403 Forbidden' "$( headers_line 1 )"
-  assertTrue "[[ ! -e \"$SHUNIT_TMPDIR/out\" ]]"
+  assertTrue "[[ ! -s \"$SHUNIT_TMPDIR/out\" ]]"
 }
 
 testCreateUserInvalidBetaKey() {
