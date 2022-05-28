@@ -18,9 +18,9 @@ services:
       - './schema.sql:/docker-entrypoint-initdb.d/schema.sql'
       - 'db_data:/var/lib/postgresql/data/'
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", *USERNAME, "-d", *DATABASE ]
+      test: [ "CMD", "pg_isready", "-U", *USERNAME, "-d", *DATABASE, "-q"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 10
       start_period: 10s
 
