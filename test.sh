@@ -8,6 +8,7 @@ TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
 TEST_TAG="tag_${TEST_TS}"
+TEST_UID="none"
 
 DEBUG=no
 
@@ -93,6 +94,10 @@ assertStatus() {
 assertError() {
   assertEquals 'error code' "$1" "$( show_output | jq -r .code )"
   assertEquals 'error msg' "$2" "$( show_output | jq -r .message )"
+}
+
+extractUid() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
 }
 
 extractEmail() {
@@ -186,6 +191,13 @@ testUnauthorizedGet() {
   assertError 'forbidden' 'forbidden'
 }
 
+testUnauthorizedGetSessionUser() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 403 Forbidden'
+  assertError 'forbidden' 'forbidden'
+}
+
 testCreateUserInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
@@ -209,6 +221,7 @@ testCreateUser() {
   assertStatus 'HTTP/1.1 201 Created'
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  TEST_UID="$( extractUid )"
 }
 
 testCreateUserSecondTime() {
@@ -331,6 +344,15 @@ testLogInInvalidJSON() {
   assertError 'bad_request' 'bad request body'
 }
 
+testGetSessionUser() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
+}
+
 testLogIn() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
@@ -338,6 +360,7 @@ testLogIn() {
 
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 

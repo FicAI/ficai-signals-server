@@ -75,10 +75,10 @@ pub struct CreateUserQ {
     beta_key: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
-    id: i64,
+    pub id: i64,
     email: String,
 }
 
@@ -194,7 +194,11 @@ pub async fn log_in(
     .into_response())
 }
 
-pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> + Clone {
+pub async fn get_session_user(user: User) -> Result<Response<Body>, Rejection> {
+    Ok(warp::reply::json(&user).into_response())
+}
+
+pub fn authenticate(db: DB) -> impl Filter<Extract = (User,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
@@ -211,12 +215,19 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> 
                 }
             };
 
-            let row = sqlx::query("select user_id from session where id = $1")
-                .bind(cookie)
-                .fetch_one(&db)
-                .await;
+            let row = sqlx::query_as::<_, User>(
+                r#"
+                select u.id, u.email
+                from session s
+                join "user" u
+                    on u.id = s.user_id
+                where s.id = $1"#,
+            )
+            .bind(&cookie)
+            .fetch_one(&db)
+            .await;
             match row {
-                Ok(row) => Ok(row.get::<i64, _>("user_id")),
+                Ok(user) => Ok(user),
                 Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);

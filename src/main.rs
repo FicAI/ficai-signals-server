@@ -7,7 +7,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
-use crate::usermgmt::authenticate;
+use crate::usermgmt::{authenticate, User};
 
 mod httputil;
 mod usermgmt;
@@ -73,6 +73,10 @@ async fn main() -> eyre::Result<()> {
             let pool = pool.clone();
             move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
+    let get_session_user = warp::path!("v1" / "sessions")
+        .and(warp::get())
+        .and(authenticate(pool.clone()))
+        .and_then(crate::usermgmt::get_session_user);
 
     let get = warp::path!("v1" / "signals")
         .and(warp::get())
@@ -80,7 +84,7 @@ async fn main() -> eyre::Result<()> {
         .and(warp::query::<GetQueryParams>())
         .then({
             let pool = pool.clone();
-            move |uid, q: GetQueryParams| get(uid, q.url, pool.clone())
+            move |user, q: GetQueryParams| get(user, q.url, pool.clone())
         });
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -88,7 +92,7 @@ async fn main() -> eyre::Result<()> {
         .and(warp::body::json::<PatchQuery>())
         .then({
             let pool = pool.clone();
-            move |uid, q: PatchQuery| patch(uid, q, pool.clone())
+            move |user, q: PatchQuery| patch(user, q, pool.clone())
         });
 
     let get_urls = warp::path!("v1" / "urls").and(warp::get()).then({
@@ -104,6 +108,7 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_user
             .or(log_in)
+            .or(get_session_user)
             .or(get)
             .or(patch)
             .or(get_urls)
@@ -158,9 +163,9 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
+async fn get(user: User, url: String, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        TagInfo::get(&pool, uid, url)
+        TagInfo::get(&pool, user.id, url)
             .await
             .map(|tags| Tags { tags })
             .wrap_err("failed to get tags"),
@@ -236,9 +241,9 @@ async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn patch(uid: i64, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
+async fn patch(user: User, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        patch_signals(&pool, uid, q)
+        patch_signals(&pool, user.id, q)
             .await
             .map(|_| Empty {})
             .wrap_err("failed to patch signals"),
