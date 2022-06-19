@@ -1,13 +1,13 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use base64ct::Encoding as _;
 use eyre::{ensure, WrapErr};
-use http::header::{CONTENT_TYPE, SET_COOKIE};
+use http::header::SET_COOKIE;
 use http::{Response, StatusCode};
 use hyper::Body;
 use rand_core::{OsRng, RngCore};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Row as _;
-use warp::{Filter, Rejection};
+use warp::{Filter, Rejection, Reply};
 
 use crate::httputil::{AccountAlreadyExists, BadRequest, Forbidden, InternalError};
 use crate::DB;
@@ -80,6 +80,13 @@ pub struct CreateAccountQ {
     beta_key: String,
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    id: i64,
+    email: String,
+}
+
 pub async fn create_account(
     q: CreateAccountQ,
     pool: DB,
@@ -99,7 +106,7 @@ pub async fn create_account(
     };
     let row =
         sqlx::query(r#"insert into account (email, password_hash) values ($1, $2) returning id"#)
-            .bind(q.email)
+            .bind(&q.email)
             .bind(hash)
             .fetch_one(&pool)
             .await;
@@ -123,12 +130,18 @@ pub async fn create_account(
             warp::reject::custom(InternalError)
         })?
         .into_cookie(domain);
-    Ok(Response::builder()
-        .status(StatusCode::CREATED)
-        .header(SET_COOKIE, session_id_cookie)
-        .header(CONTENT_TYPE, "application/json")
-        .body("{}".into())
-        .unwrap())
+    Ok(warp::reply::with_header(
+        warp::reply::with_status(
+            warp::reply::json(&Account {
+                id: uid,
+                email: q.email,
+            }),
+            StatusCode::CREATED,
+        ),
+        SET_COOKIE,
+        session_id_cookie,
+    )
+    .into_response())
 }
 
 #[derive(Deserialize, Debug)]
@@ -145,7 +158,7 @@ pub async fn create_session(
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
     let row = sqlx::query(r#"select id, password_hash from account where email = $1"#)
-        .bind(q.email)
+        .bind(&q.email)
         .fetch_optional(&db)
         .await;
     let (uid, db_hash_string): (i64, String) = match row {
@@ -173,12 +186,15 @@ pub async fn create_session(
             warp::reject::custom(InternalError)
         })?
         .into_cookie(domain);
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(SET_COOKIE, session_id_cookie)
-        .header(CONTENT_TYPE, "application/json")
-        .body("{}".into())
-        .unwrap())
+    Ok(warp::reply::with_header(
+        warp::reply::json(&Account {
+            id: uid,
+            email: q.email,
+        }),
+        SET_COOKIE,
+        session_id_cookie,
+    )
+    .into_response())
 }
 
 pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> + Clone {
