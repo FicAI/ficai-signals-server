@@ -7,7 +7,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
-use crate::usermgmt::{authenticate, User};
+use crate::usermgmt::{authenticate, UserSession};
 
 mod httputil;
 mod usermgmt;
@@ -73,6 +73,13 @@ async fn main() -> eyre::Result<()> {
             let pool = pool.clone();
             move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
         });
+    let log_out = warp::path!("v1" / "sessions")
+        .and(warp::delete())
+        .and(authenticate(pool.clone()))
+        .and_then({
+            let pool = pool.clone();
+            move |user| crate::usermgmt::log_out(user, pool.clone(), domain)
+        });
     let get_session_user = warp::path!("v1" / "sessions")
         .and(warp::get())
         .and(authenticate(pool.clone()))
@@ -108,6 +115,7 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_user
             .or(log_in)
+            .or(log_out)
             .or(get_session_user)
             .or(get)
             .or(patch)
@@ -163,7 +171,7 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(user: User, url: String, pool: DB) -> http::Response<hyper::Body> {
+async fn get(user: UserSession, url: String, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
         TagInfo::get(&pool, user.id, url)
             .await
@@ -241,7 +249,7 @@ async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn patch(user: User, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
+async fn patch(user: UserSession, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
         patch_signals(&pool, user.id, q)
             .await

@@ -81,6 +81,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    delete:
+      summary: Log out.
+      operationId: logOut
+      tags:
+        - sessions
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyObject"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /signals:
     get:
       summary: Get signals for a fic.

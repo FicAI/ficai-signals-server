@@ -7,9 +7,13 @@ use hyper::Body;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sqlx::Row as _;
-use warp::{Filter, Rejection, Reply};
+use tap::prelude::*;
+use warp::{
+    reply::{json, with_header, with_status},
+    Filter, Rejection, Reply,
+};
 
-use crate::httputil::{AccountAlreadyExists, BadRequest, Forbidden, InternalError};
+use crate::httputil::{AccountAlreadyExists, BadRequest, Empty, Forbidden, InternalError};
 use crate::DB;
 
 const SESSION_COOKIE_NAME: &str = "FicAiSession";
@@ -56,7 +60,7 @@ async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
     Ok(base64ct::Base64Unpadded::encode_string(&session_id))
 }
 
-fn create_session_cookie(session_id: String, domain: &str) -> String {
+fn session_cookie<'a>(session_id: &'a str, domain: &'a str) -> cookie::Cookie<'a> {
     cookie::Cookie::build(SESSION_COOKIE_NAME, session_id)
         .domain(domain)
         .path("/")
@@ -64,6 +68,15 @@ fn create_session_cookie(session_id: String, domain: &str) -> String {
         .http_only(true)
         .permanent()
         .finish()
+}
+
+fn create_session_cookie(session_id: &str, domain: &str) -> String {
+    session_cookie(session_id, domain).to_string()
+}
+
+fn remove_session_cookie(domain: &str) -> String {
+    session_cookie("", domain)
+        .tap_mut(|c| c.make_removal())
         .to_string()
 }
 
@@ -75,7 +88,7 @@ pub struct CreateUserQ {
     beta_key: String,
 }
 
-#[derive(Serialize, Debug, sqlx::FromRow)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
     pub id: i64,
@@ -125,18 +138,13 @@ pub async fn create_user(
             return Err(warp::reject::custom(InternalError));
         }
     };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
-    Ok(warp::reply::with_header(
-        warp::reply::with_status(
-            warp::reply::json(&User {
-                id: uid,
-                email: q.email,
-            }),
-            StatusCode::CREATED,
-        ),
-        SET_COOKIE,
-        session_id_cookie,
-    )
+    let session_id_cookie = create_session_cookie(&session_id_string, domain);
+    Ok(json(&User {
+        id: uid,
+        email: q.email,
+    })
+    .pipe(|r| with_status(r, StatusCode::CREATED))
+    .pipe(|r| with_header(r, SET_COOKIE, session_id_cookie))
     .into_response())
 }
 
@@ -182,23 +190,51 @@ pub async fn log_in(
             return Err(warp::reject::custom(InternalError));
         }
     };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
-    Ok(warp::reply::with_header(
-        warp::reply::json(&User {
-            id: uid,
-            email: q.email,
-        }),
-        SET_COOKIE,
-        session_id_cookie,
-    )
+    let session_id_cookie = create_session_cookie(&session_id_string, domain);
+    Ok(json(&User {
+        id: uid,
+        email: q.email,
+    })
+    .pipe(|r| with_header(r, SET_COOKIE, session_id_cookie))
     .into_response())
 }
 
-pub async fn get_session_user(user: User) -> Result<Response<Body>, Rejection> {
-    Ok(warp::reply::json(&user).into_response())
+pub async fn get_session_user(user: UserSession) -> Result<Response<Body>, Rejection> {
+    Ok(json(&user).into_response())
 }
 
-pub fn authenticate(db: DB) -> impl Filter<Extract = (User,), Error = Rejection> + Clone {
+pub async fn log_out(
+    session: UserSession,
+    pool: DB,
+    domain: &str,
+) -> Result<Response<Body>, Rejection> {
+    if 1 == sqlx::query("delete from session where id = $1")
+        .bind(&session.session_id)
+        .execute(&pool)
+        .await
+        .map_err(|_e| InternalError)?
+        .rows_affected()
+    {
+        Ok(json(&Empty {})
+            .pipe(|r| with_header(r, SET_COOKIE, remove_session_cookie(domain)))
+            .into_response())
+    } else {
+        // This may mean the user was deleted inbetween validating their session and getting to
+        // this point, which means the current request is racing against a delete.
+        Err(warp::reject::custom(InternalError))
+    }
+}
+
+#[derive(Serialize, Debug, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSession {
+    pub id: i64,
+    email: String,
+    #[serde(skip_serializing)]
+    session_id: Vec<u8>,
+}
+
+pub fn authenticate(db: DB) -> impl Filter<Extract = (UserSession,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
@@ -215,9 +251,9 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (User,), Error = Rejection>
                 }
             };
 
-            let row = sqlx::query_as::<_, User>(
+            let row = sqlx::query_as::<_, UserSession>(
                 r#"
-                select u.id, u.email
+                select u.id, u.email, s.id as session_id
                 from session s
                 join "user" u
                     on u.id = s.user_id
