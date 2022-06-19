@@ -95,6 +95,10 @@ async fn main() -> eyre::Result<()> {
         let pool = pool.clone();
         move || get_urls(pool.clone())
     });
+    let get_tags = warp::path!("v1" / "tags").and(warp::get()).then({
+        let pool = pool.clone();
+        move || get_tags(pool.clone())
+    });
 
     // todo: graceful shutdown
     warp::serve(
@@ -103,6 +107,7 @@ async fn main() -> eyre::Result<()> {
             .or(get)
             .or(patch)
             .or(get_urls)
+            .or(get_tags)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -272,5 +277,21 @@ async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
             .await
             .map(|urls| URLs { urls })
             .wrap_err("failed to query urls"),
+    )
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct JustTags {
+    tags: Vec<String>,
+}
+
+async fn get_tags(pool: DB) -> http::Response<hyper::Body> {
+    json_or_error(
+        sqlx::query_scalar::<_, String>("select distinct tag from signal")
+            .fetch_all(&pool)
+            .await
+            .map(|tags| JustTags { tags })
+            .wrap_err("failed to query tags"),
     )
 }

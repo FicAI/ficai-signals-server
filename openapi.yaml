@@ -148,6 +148,26 @@ paths:
                     items:
                       type: string
                       format: url
+  /tags:
+    get:
+      summary: Get all known fic tags.
+      operationId: getTags
+      tags:
+        - tags
+      responses:
+        '200':
+          description: Existing tags.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - tags
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      type: string
 components:
   securitySchemes:
     cookieAuth:
