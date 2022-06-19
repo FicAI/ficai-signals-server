@@ -7,6 +7,7 @@ TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_UID="none"
 
 DEBUG=no
 
@@ -93,6 +94,10 @@ assertError() {
   assertEquals 'error msg' "$1" "$( show_output | jq -r .error.message )"
 }
 
+extractUid() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
+}
+
 extractEmail() {
   <"$SHUNIT_TMPDIR/out" jq -r ".email"
 }
@@ -160,6 +165,13 @@ testUnauthorizedGet() {
   assertError 'forbidden'
 }
 
+testUnauthorizedGetSessionAccount() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 403 Forbidden'
+  assertError 'forbidden' 'forbidden'
+}
+
 testCreateAccountInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
@@ -183,6 +195,7 @@ testCreateAccount() {
   assertStatus 'HTTP/1.1 201 Created'
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  TEST_UID="$( extractUid )"
 }
 
 testCreateAccountSecondTime() {
@@ -245,6 +258,15 @@ testCreateSessionInvalidJSON() {
   assertError 'bad request body'
 }
 
+testGetSessionAccount() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
+}
+
 testCreateSession() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
@@ -252,6 +274,7 @@ testCreateSession() {
 
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
