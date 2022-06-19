@@ -1,15 +1,19 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use base64ct::Encoding as _;
-use eyre::{ensure, WrapErr};
+use eyre::{eyre, WrapErr};
 use http::header::SET_COOKIE;
 use http::{Response, StatusCode};
 use hyper::Body;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sqlx::Row as _;
-use warp::{Filter, Rejection, Reply};
+use tap::prelude::*;
+use warp::{
+    reply::{json, with_header, with_status},
+    Filter, Rejection, Reply,
+};
 
-use crate::httputil::{AccountAlreadyExists, BadRequest, Forbidden, InternalError};
+use crate::httputil::{AccountAlreadyExists, BadRequest, Empty, Forbidden, InternalError};
 use crate::DB;
 
 const SESSION_COOKIE_NAME: &str = "FicAiSession";
@@ -27,23 +31,32 @@ fn create_kdf(pepper: &[u8]) -> Argon2 {
     Argon2::new_with_secret(pepper, Argon2id, V0x13, params).expect("failed to initialize Argon2")
 }
 
-struct Session(String);
+#[derive(Serialize, Debug, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountSession {
+    pub id: i64,
+    email: String,
+    #[serde(skip_serializing)]
+    session_id: Vec<u8>,
+}
 
-impl Session {
-    async fn create(uid: i64, db: &DB) -> eyre::Result<Self> {
+impl AccountSession {
+    async fn create(id: i64, email: String, db: &DB) -> eyre::Result<Self> {
         let mut session_id = [0u8; SESSION_ID_BYTES];
-        let mut inserted = false;
         for _ in 0..3 {
             OsRng.fill_bytes(&mut session_id);
             let insert_result = sqlx::query("insert into session (id, account_id) values ($1, $2)")
                 .bind(&session_id[..])
-                .bind(uid)
+                .bind(id)
                 .execute(db)
                 .await;
             match insert_result {
                 Ok(_) => {
-                    inserted = true;
-                    break;
+                    return Ok(Self {
+                        id,
+                        email,
+                        session_id: session_id.to_vec(),
+                    })
                 }
                 Err(sqlx::Error::Database(db_err))
                     if db_err.code() == Some(CONSTRAINT_VIOLATION_SQLSTATE.into()) =>
@@ -53,22 +66,25 @@ impl Session {
                 Err(e) => return Err(e).wrap_err("failed to insert new session"),
             }
         }
-        ensure!(
-            inserted,
-            "failed to generate a new session id in 3 attempts"
-        );
-        Ok(Self(base64ct::Base64Unpadded::encode_string(&session_id)))
+        Err(eyre!("failed to generate a new session id in 3 attempts"))
     }
 
-    fn into_cookie(self, domain: &str) -> String {
-        cookie::Cookie::build(SESSION_COOKIE_NAME, self.0)
+    fn cookie_value(&self) -> String {
+        base64ct::Base64Unpadded::encode_string(&self.session_id)
+    }
+
+    fn to_cookie<'a>(&self, domain: &'a str) -> cookie::Cookie<'a> {
+        cookie::Cookie::build(SESSION_COOKIE_NAME, self.cookie_value())
             .domain(domain)
             .path("/")
             .secure(true)
             .http_only(true)
             .permanent()
             .finish()
-            .to_string()
+    }
+
+    fn to_cookie_removal<'a>(&self, domain: &'a str) -> cookie::Cookie<'a> {
+        self.to_cookie(domain).tap_mut(|c| c.make_removal())
     }
 }
 
@@ -78,13 +94,6 @@ pub struct CreateAccountQ {
     email: String,
     password: String,
     beta_key: String,
-}
-
-#[derive(Serialize, Debug, sqlx::FromRow)]
-#[serde(rename_all = "camelCase")]
-pub struct Account {
-    pub id: i64,
-    email: String,
 }
 
 pub async fn create_account(
@@ -123,25 +132,17 @@ pub async fn create_account(
         }
     };
 
-    let session_id_cookie = Session::create(uid, &pool)
+    let session = AccountSession::create(uid, q.email, &pool)
         .await
         .map_err(|e| {
             eprintln!("{:?}", e);
             warp::reject::custom(InternalError)
-        })?
-        .into_cookie(domain);
-    Ok(warp::reply::with_header(
-        warp::reply::with_status(
-            warp::reply::json(&Account {
-                id: uid,
-                email: q.email,
-            }),
-            StatusCode::CREATED,
-        ),
-        SET_COOKIE,
-        session_id_cookie,
-    )
-    .into_response())
+        })?;
+    let session_id_cookie = session.to_cookie(domain).to_string();
+    Ok(json(&session)
+        .pipe(|r| with_status(r, StatusCode::CREATED))
+        .pipe(|r| with_header(r, SET_COOKIE, session_id_cookie))
+        .into_response())
 }
 
 #[derive(Deserialize, Debug)]
@@ -179,29 +180,48 @@ pub async fn create_session(
             return Err(warp::reject::custom(Forbidden));
         }
     }
-    let session_id_cookie = Session::create(uid, &db)
+    let session = AccountSession::create(uid, q.email, &db)
         .await
         .map_err(|e| {
             eprintln!("{:?}", e);
             warp::reject::custom(InternalError)
+        })?;
+    let session_id_cookie = session.to_cookie(domain).to_string();
+    Ok(json(&session)
+        .pipe(|r| with_header(r, SET_COOKIE, session_id_cookie))
+        .into_response())
+}
+
+pub async fn get_session_account(account: AccountSession) -> Result<Response<Body>, Rejection> {
+    Ok(json(&account).into_response())
+}
+
+pub async fn delete_session(
+    session: AccountSession,
+    pool: DB,
+    domain: &str,
+) -> Result<Response<Body>, Rejection> {
+    if 1 == sqlx::query("delete from session where id = $1")
+        .bind(&session.session_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| {
+            eprintln!("error deleting session: {:#?}", e);
+            warp::reject::custom(InternalError)
         })?
-        .into_cookie(domain);
-    Ok(warp::reply::with_header(
-        warp::reply::json(&Account {
-            id: uid,
-            email: q.email,
-        }),
-        SET_COOKIE,
-        session_id_cookie,
-    )
-    .into_response())
+        .rows_affected()
+    {
+        Ok(json(&Empty {})
+            .pipe(|r| with_header(r, SET_COOKIE, session.to_cookie_removal(domain).to_string()))
+            .into_response())
+    } else {
+        // This may mean the account was deleted in between validating their session and getting to
+        // this point, which means the current request is racing against a delete.
+        Err(warp::reject::custom(InternalError))
+    }
 }
 
-pub async fn get_session_account(account: Account) -> Result<Response<Body>, Rejection> {
-    Ok(warp::reply::json(&account).into_response())
-}
-
-pub fn authenticate(db: DB) -> impl Filter<Extract = (Account,), Error = Rejection> + Clone {
+pub fn authenticate(db: DB) -> impl Filter<Extract = (AccountSession,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
@@ -218,9 +238,10 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (Account,), Error = Rejecti
                 }
             };
 
-            let row = sqlx::query_as::<_, Account>(
+            let row = sqlx::query_as::<_, AccountSession>(
                 r#"
                 select a.id, a.email
+                    , s.id as session_id
                 from session s
                 join account a
                     on a.id = s.account_id
@@ -230,7 +251,7 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (Account,), Error = Rejecti
             .fetch_one(&db)
             .await;
             match row {
-                Ok(account) => Ok(account),
+                Ok(account_session) => Ok(account_session),
                 Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);

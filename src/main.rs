@@ -8,7 +8,7 @@ use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
 use crate::signal::{Signal, Signals};
-use crate::usermgmt::{authenticate, Account};
+use crate::usermgmt::{authenticate, AccountSession};
 
 mod httputil;
 mod signal;
@@ -80,6 +80,11 @@ async fn main() -> eyre::Result<()> {
         .and(warp::get())
         .and(authenticate.clone())
         .and_then(crate::usermgmt::get_session_account);
+    let delete_session = warp::path!("v1" / "sessions")
+        .and(warp::delete())
+        .and(authenticate.clone())
+        .and(pool.clone())
+        .and_then(move |session, pool| crate::usermgmt::delete_session(session, pool, domain));
 
     let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
@@ -101,6 +106,7 @@ async fn main() -> eyre::Result<()> {
         create_account
             .or(create_session)
             .or(get_session_account)
+            .or(delete_session)
             .or(get_signals)
             .or(patch_signals)
             .recover(recover_custom),
@@ -117,7 +123,7 @@ struct GetSignalsQ {
     url: String,
 }
 
-async fn get_signals(account: Account, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
+async fn get_signals(account: AccountSession, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
     Signals::get(account.id, q.url, &pool)
         .await
         .wrap_err("failed to get signals")
@@ -135,7 +141,7 @@ struct PatchSignalsQ {
     erase: Vec<String>,
 }
 
-async fn patch_signals(account: Account, q: PatchSignalsQ, pool: DB) -> eyre::Result<Empty> {
+async fn patch_signals(account: AccountSession, q: PatchSignalsQ, pool: DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
         Signal::set(account.id, &q.url, &tag, true, &pool)

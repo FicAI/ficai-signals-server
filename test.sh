@@ -267,6 +267,24 @@ testGetSessionAccount() {
   assertEquals "$TEST_UID" "$( extractUid )"
 }
 
+testDeleteSession() {
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "{}" "$( show_output )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
+testDeleteSessionSecondTime() {
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertStatus 'HTTP/1.1 403 Forbidden'
+  assertError 'forbidden' 'forbidden'
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
 testCreateSession() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
