@@ -7,7 +7,7 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
-use crate::usermgmt::{authenticate, UserSession};
+use crate::usermgmt::{authenticate, optional_authenticate, UserSession};
 
 mod httputil;
 mod usermgmt;
@@ -85,13 +85,13 @@ async fn main() -> eyre::Result<()> {
         .and(authenticate(pool.clone()))
         .and_then(crate::usermgmt::get_session_user);
 
-    let get = warp::path!("v1" / "signals")
+    let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
-        .and(authenticate(pool.clone()))
+        .and(optional_authenticate(pool.clone()))
         .and(warp::query::<GetQueryParams>())
         .then({
             let pool = pool.clone();
-            move |user, q: GetQueryParams| get(user, q.url, pool.clone())
+            move |user, q: GetQueryParams| get_signals(user, q.url, pool.clone())
         });
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -117,7 +117,7 @@ async fn main() -> eyre::Result<()> {
             .or(log_in)
             .or(log_out)
             .or(get_session_user)
-            .or(get)
+            .or(get_signals)
             .or(patch)
             .or(get_urls)
             .or(get_tags)
@@ -145,7 +145,7 @@ struct TagInfo {
 }
 
 impl TagInfo {
-    pub async fn get(pool: &DB, uid: i64, url: String) -> eyre::Result<Vec<TagInfo>> {
+    pub async fn get(pool: &DB, uid: Option<i64>, url: String) -> eyre::Result<Vec<TagInfo>> {
         Ok(sqlx::query_as::<_, TagInfo>(
             "
 select
@@ -171,9 +171,13 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(user: UserSession, url: String, pool: DB) -> http::Response<hyper::Body> {
+async fn get_signals(
+    user: Option<UserSession>,
+    url: String,
+    pool: DB,
+) -> http::Response<hyper::Body> {
     json_or_error(
-        TagInfo::get(&pool, user.id, url)
+        TagInfo::get(&pool, user.map(|u| u.id), url)
             .await
             .map(|tags| Tags { tags })
             .wrap_err("failed to get tags"),

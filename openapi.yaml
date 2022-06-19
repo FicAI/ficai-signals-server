@@ -109,6 +109,7 @@ paths:
         - signals
       security:
         - cookieAuth: []
+        - {}
       parameters:
         - name: url
           in: query
@@ -125,12 +126,6 @@ paths:
                 $ref: "#/components/schemas/Tags"
         '400':
           description: Bad request.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        '403':
-          description: Forbidden.
           content:
             application/json:
               schema:

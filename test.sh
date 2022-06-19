@@ -185,8 +185,8 @@ test405() {
   assertError 'method_not_allowed' 'method not allowed'
 }
 
-testUnauthorizedGet() {
-  request_get
+testUnauthorizedPatch() {
+  request_patch "$TEST_URL" +worm +taylor
   assertStatus 'HTTP/1.1 403 Forbidden'
   assertError 'forbidden' 'forbidden'
 }
@@ -314,29 +314,6 @@ testRm() {
   assertSignal "taylor hebert" true 1 0
 }
 
-testErase() {
-  request_patch "$TEST_URL" %taylor
-  request_get
-  assertStatus 'HTTP/1.1 200 OK'
-  assertSignal worm true 1 0
-  assertSignal "taylor hebert" true 1 0
-  assertNoSignal taylor
-
-  request_patch "$TEST_URL" %worm '%taylor hebert'
-  request_get
-  assertStatus 'HTTP/1.1 200 OK'
-  assertNoSignal worm
-  assertNoSignal "taylor hebert"
-  assertNoSignal taylor
-}
-
-testGetErasedURL() {
-  request "http://$FICAI_LISTEN/v1/urls"
-  assertStatus 'HTTP/1.1 200 OK'
-
-  assertNoURL "$TEST_URL"
-}
-
 testLogInInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
@@ -371,6 +348,14 @@ testLogOutSecondTime() {
   assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
 }
 
+testUnauthorizedGetSignals() {
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertSignal worm null 1 0
+  assertSignal "taylor hebert" null 1 0
+  assertSignal taylor null 0 1
+}
+
 testLogIn() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
@@ -380,6 +365,37 @@ testLogIn() {
   assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertEquals "$TEST_UID" "$( extractUid )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+}
+
+testGetSignals() {
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertSignal worm true 1 0
+  assertSignal "taylor hebert" true 1 0
+  assertSignal taylor false 0 1
+}
+
+testErase() {
+  request_patch "$TEST_URL" %taylor
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertSignal worm true 1 0
+  assertSignal "taylor hebert" true 1 0
+  assertNoSignal taylor
+
+  request_patch "$TEST_URL" %worm '%taylor hebert'
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoSignal worm
+  assertNoSignal "taylor hebert"
+  assertNoSignal taylor
+}
+
+testGetErasedURL() {
+  request "http://$FICAI_LISTEN/v1/urls"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertNoURL "$TEST_URL"
 }
 
 testLogInWithWrongEmail() {
@@ -396,6 +412,21 @@ testLogInWithWrongPassword() {
 
   assertStatus 'HTTP/1.1 403 Forbidden'
   assertError 'forbidden' 'forbidden'
+}
+
+testUnauthorizedGetSignalsEmpty() {
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "{}" "$( show_output )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoSignal worm
+  assertNoSignal "taylor hebert"
+  assertNoSignal taylor
 }
 
 source shunit2
