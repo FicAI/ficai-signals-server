@@ -7,6 +7,7 @@ TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_TAG="tag_${TEST_TS}"
 
 DEBUG=no
 
@@ -106,6 +107,18 @@ assertSignal() {
 
 assertNoSignal() {
   assertEquals "$1" "" "$( extractSignal "$1" )"
+}
+
+extractTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.==\"$1\")"
+}
+
+assertTag() {
+  assertEquals "tag present" "$1" "$( extractTag "$1" )"
+}
+
+assertNoTag() {
+  assertEquals "tag not present" "" "$( extractTag "$1" )"
 }
 
 oneTimeSetUp() {
@@ -214,6 +227,24 @@ testAdd() {
   assertStatus 'HTTP/1.1 200 OK'
   assertSignal worm true 1 0
   assertSignal taylor true 1 0
+}
+
+testGetTags() {
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertTag "worm"
+  assertNoTag "${TEST_TAG}"
+
+  request_patch "$TEST_URL" "+${TEST_TAG}"
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertTag "${TEST_TAG}"
+
+  request_patch "$TEST_URL" "%${TEST_TAG}"
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoTag "${TEST_TAG}"
 }
 
 testRm() {
