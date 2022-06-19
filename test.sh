@@ -95,6 +95,10 @@ assertError() {
   assertEquals 'error msg' "$2" "$( show_output | jq -r .message )"
 }
 
+extractEmail() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".email"
+}
+
 extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.tag==\"$1\")"
 }
@@ -203,7 +207,7 @@ testCreateUser() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
 
   assertStatus 'HTTP/1.1 201 Created'
-  assertEquals '{}' "$( show_output )"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
@@ -333,7 +337,7 @@ testLogIn() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
 
   assertStatus 'HTTP/1.1 200 OK'
-  assertEquals '{}' "$( show_output )"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
