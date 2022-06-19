@@ -91,12 +91,18 @@ async fn main() -> eyre::Result<()> {
             move |uid, q: PatchQuery| patch(uid, q, pool.clone())
         });
 
+    let get_urls = warp::path!("v1" / "urls").and(warp::get()).then({
+        let pool = pool.clone();
+        move || get_urls(pool.clone())
+    });
+
     // todo: graceful shutdown
     warp::serve(
         create_user
             .or(log_in)
             .or(get)
             .or(patch)
+            .or(get_urls)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -251,4 +257,20 @@ fn json_or_error<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
             .into_response()
         }
     }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct URLs {
+    urls: Vec<String>,
+}
+
+async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
+    json_or_error(
+        sqlx::query_scalar::<_, String>("select distinct url from signal")
+            .fetch_all(&pool)
+            .await
+            .map(|urls| URLs { urls })
+            .wrap_err("failed to query urls"),
+    )
 }

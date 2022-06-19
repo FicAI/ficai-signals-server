@@ -109,6 +109,18 @@ assertNoSignal() {
   assertEquals "$1" "" "$( extractSignal "$1" )"
 }
 
+extractURL() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".urls[]|select(.==\"$1\")"
+}
+
+assertURL() {
+  assertEquals "url present" "$1" "$( extractURL "$1" )"
+}
+
+assertNoURL() {
+  assertEquals "url not present" "" "$( extractURL "$1" )"
+}
+
 oneTimeSetUp() {
   cargo build || return 1
   nohup "${CARGO_TARGET_DIR:-./target}/debug/ficai-signals-server" >test.log 2>&1 &
@@ -217,6 +229,34 @@ testAdd() {
   assertSignal taylor true 1 0
 }
 
+testGetURL() {
+  request "http://$FICAI_LISTEN/v1/urls"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertURL "$TEST_URL"
+  assertNoURL "${TEST_URL}.2"
+}
+
+testGetURLs() {
+  request_patch "${TEST_URL}.2" +worm
+
+  request "http://$FICAI_LISTEN/v1/urls"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertURL "$TEST_URL"
+  assertURL "${TEST_URL}.2"
+}
+
+testGetURLsReduced() {
+  request_patch "${TEST_URL}.2" %worm
+
+  request "http://$FICAI_LISTEN/v1/urls"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertURL "$TEST_URL"
+  assertNoURL "${TEST_URL}.2"
+}
+
 testRm() {
   request_patch "$TEST_URL" -taylor "+taylor hebert"
   request_get
@@ -233,6 +273,20 @@ testErase() {
   assertSignal worm true 1 0
   assertSignal "taylor hebert" true 1 0
   assertNoSignal taylor
+
+  request_patch "$TEST_URL" %worm '%taylor hebert'
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoSignal worm
+  assertNoSignal "taylor hebert"
+  assertNoSignal taylor
+}
+
+testGetErasedURL() {
+  request "http://$FICAI_LISTEN/v1/urls"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertNoURL "$TEST_URL"
 }
 
 testLogInInvalidJSON() {
