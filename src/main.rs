@@ -8,7 +8,7 @@ use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
 use crate::signal::{Signal, Signals};
-use crate::usermgmt::{authenticate, AccountSession};
+use crate::usermgmt::{authenticate, optional_authenticate, AccountSession};
 
 mod httputil;
 mod signal;
@@ -62,6 +62,7 @@ async fn main() -> eyre::Result<()> {
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
 
     let authenticate = authenticate(pool.clone());
+    let optional_authenticate = optional_authenticate(pool.clone());
     let pool = warp::any().map(move || pool.clone());
 
     let create_account = warp::path!("v1" / "accounts")
@@ -88,7 +89,7 @@ async fn main() -> eyre::Result<()> {
 
     let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
-        .and(authenticate.clone())
+        .and(optional_authenticate.clone())
         .and(warp::query::<GetSignalsQ>())
         .and(pool.clone())
         .then(get_signals)
@@ -131,8 +132,12 @@ struct GetSignalsQ {
     url: String,
 }
 
-async fn get_signals(account: AccountSession, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
-    Signals::get(account.id, q.url, &pool)
+async fn get_signals(
+    account: Option<AccountSession>,
+    q: GetSignalsQ,
+    pool: DB,
+) -> eyre::Result<Signals> {
+    Signals::get(account.map(|a| a.id), q.url, &pool)
         .await
         .wrap_err("failed to get signals")
 }

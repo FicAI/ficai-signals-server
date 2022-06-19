@@ -47,7 +47,7 @@ on conflict (account_id, url, tag) do update set signal = $4
 }
 
 impl Signals {
-    pub async fn get(uid: i64, url: String, pool: &DB) -> eyre::Result<Self> {
+    pub async fn get(uid: Option<i64>, url: String, pool: &DB) -> eyre::Result<Self> {
         Ok(Self {
             signals: sqlx::query_as::<_, Signal>(
                 "
