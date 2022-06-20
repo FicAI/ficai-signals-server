@@ -1,6 +1,6 @@
 # Fic.AI signals server
 
-The backend component that provides the API for accessing and modifying a user's contribution to the Fic.AI database in the form of "signals".
+The backend component that provides the API for accessing and modifying a user's contribution to the Fic.AI database (postgres) in the form of "signals".
 
 Each signal indicates approval or disapproval of a tag (identified by name) being applied to a story (identified by its canonical URL).
 
@@ -20,3 +20,8 @@ The server expects the following environment variables to be set:
 [OWASP-PSCS]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering
 [Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#section-4.2
 [RFC-4648]: https://datatracker.ietf.org/doc/html/rfc4648
+
+# Running with docker-compose
+1. Create `.env` file based on `.env.template` to set environment variables
+2. Install Docker (or Docker Desktop for Mac/Windows)
+3. Run `docker-compose up -d --build`. First build might take a while, consequent builds will be faster. SQL migrations in `schema.sql` will run automatically on first launch
