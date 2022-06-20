@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
@@ -6,10 +7,11 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use warp::{Filter as _, Reply};
 
-use crate::httputil::{recover_custom, Empty, Error};
+use crate::httputil::{recover_custom, Empty, Error, ErrorWrap};
 use crate::signal::{Signal, Signals};
 use crate::usermgmt::{authenticate, optional_authenticate, AccountSession};
 
+mod fichub;
 mod httputil;
 mod signal;
 mod usermgmt;
@@ -28,6 +30,7 @@ struct Config {
     domain: String,
     beta_key: String,
     bex_latest_version: String,
+    fichub_base_url: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -63,9 +66,26 @@ async fn main() -> eyre::Result<()> {
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
     let bex_latest_version: &'static str = Box::leak(cfg.bex_latest_version.into_boxed_str());
 
+    let fichub_base_url =
+        reqwest::Url::parse(&cfg.fichub_base_url).wrap_err("failed to parse fichub_base_url")?;
+
+    let fichub_client = fichub::Client::new(
+        reqwest::Client::builder()
+            // Timeouts chosen semi-arbitrarily, with the connect timeout being 2% longer than the
+            // default TCP packet retransmission window:
+            // https://datatracker.ietf.org/doc/html/rfc2988
+            .connect_timeout(Duration::from_millis(3_060))
+            .timeout(Duration::from_millis(10_000))
+            .user_agent("fic.ai/0.0.1")
+            .build()
+            .wrap_err("failed to build http client")?,
+        fichub_base_url,
+    );
+
     let authenticate = authenticate(pool.clone());
     let optional_authenticate = optional_authenticate(pool.clone());
     let pool = warp::any().map(move || pool.clone());
+    let fichub_client = warp::any().map(move || fichub_client.clone());
 
     let create_account = warp::path!("v1" / "accounts")
         .and(warp::post())
@@ -117,6 +137,14 @@ async fn main() -> eyre::Result<()> {
         .then(|v, pool| get_bex_version(v, pool, bex_latest_version))
         .then(reply_json);
 
+    let get_fics = warp::path!("v1" / "fics")
+        .and(warp::get())
+        .and(warp::query::<GetFicsQ>())
+        .and(fichub_client.clone())
+        .and(pool.clone())
+        .then(get_fics)
+        .then(reply_json);
+
     // todo: graceful shutdown
     warp::serve(
         create_account
@@ -127,6 +155,7 @@ async fn main() -> eyre::Result<()> {
             .or(patch_signals)
             .or(get_tags)
             .or(get_bex_version)
+            .or(get_fics)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -197,8 +226,10 @@ async fn reply_json<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
         Err(e) => {
             eprintln!("error: {:#?}", e);
             warp::reply::with_status(
-                warp::reply::json(&Error {
-                    message: format!("{:#}", e),
+                warp::reply::json(&ErrorWrap {
+                    error: Error {
+                        message: format!("{e}"),
+                    },
                 }),
                 http::StatusCode::INTERNAL_SERVER_ERROR,
             )
@@ -256,4 +287,20 @@ async fn get_bex_version(v: String, _pool: DB, bex_latest_version: &str) -> eyre
         retired: v == "v0.0.0",
         latest_version: bex_latest_version.to_string(),
     })
+}
+
+#[derive(Deserialize, Debug)]
+struct GetFicsQ {
+    url: String,
+}
+
+async fn get_fics(
+    q: GetFicsQ,
+    client: fichub::Client,
+    _pool: DB,
+) -> eyre::Result<Option<fichub::Meta>> {
+    client
+        .meta(&q.url)
+        .await
+        .wrap_err("failed to query fic metadata")
 }

@@ -1,12 +1,12 @@
 #!/bin/bash
 
 source test.env
-export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY FICAI_BEX_LATEST_VERSION
+export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY FICAI_BEX_LATEST_VERSION FICAI_FICHUB_BASE_URL
 
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
-TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_URL="https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"
 TEST_TAG="tag_${TEST_TS}"
 TEST_UID="none"
 
@@ -142,7 +142,24 @@ assertNoTag() {
   assertEquals "tag not present" "" "$( extractTag "$1" )"
 }
 
+extractFicId() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
+}
+
+extractFicTitle() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".title"
+}
+
+extractFicSource() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".source"
+}
+
 oneTimeSetUp() {
+  cargo build --example fake_fichub || return 1
+  nohup "${CARGO_TARGET_DIR:-./target}/debug/examples/fake_fichub" >fake_fichub.log 2>&1 &
+  echo $! >fake_fichub.pid
+  echo "fake fichub process pid: $(cat fake_fichub.pid)"
+
   cargo build || return 1
   nohup "${CARGO_TARGET_DIR:-./target}/debug/ficai-signals-server" >test.log 2>&1 &
   echo $! >test.pid
@@ -150,7 +167,8 @@ oneTimeSetUp() {
   for i in {1..5} ; do
     sleep 0.1s
     pgrep -F test.pid >/dev/null && break
-    [[ "$i" -eq 5 ]] && echo "tired of waiting for server to start" && exit 1
+
+    [[ "$i" -eq 5 ]] && pkill -F fake_fichub.pid && echo "tired of waiting for server to start" && exit 1
   done
   # todo: wait for server initialization
   sleep 1
@@ -164,8 +182,11 @@ oneTimeTearDown() {
 
   echo "taking down server process $(cat test.pid)..."
   pkill -F test.pid
-
   rm test.pid
+
+  echo "taking down fake fichub process $(cat fake_fichub.pid)..."
+  pkill -F fake_fichub.pid
+  rm fake_fichub.pid
 }
 
 headers_line() {
@@ -422,6 +443,36 @@ testGetBex() {
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals true "$( extractRetired )"
   assertEquals "${FICAI_BEX_LATEST_VERSION}" "$( extractLatestVersion )"
+}
+
+testGetFicInvalidQuery() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "urlz=${TEST_URL}"
+  assertStatus 'HTTP/1.1 400 Bad Request'
+  assertError 'bad request query'
+}
+
+testGetFic() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=${TEST_URL}"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals 'NtePoQrV' "$( extractFicId )"
+  assertEquals 'Nemesis' "$( extractFicTitle )"
+  assertEquals "${TEST_URL}" "$( extractFicSource )"
+}
+
+testGetFicError() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=not-a-fic"
+  assertStatus 'HTTP/1.1 500 Internal Server Error'
+  assertError 'failed to query fic metadata'
+}
+
+testGetFicTimeout() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=hang-15"
+  assertStatus 'HTTP/1.1 500 Internal Server Error'
+  assertError 'failed to query fic metadata'
 }
 
 source shunit2

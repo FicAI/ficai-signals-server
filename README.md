@@ -17,6 +17,7 @@ The server expects the following environment variables to be set:
 * `FICAI_DOMAIN` is the domain (no URL schema or port!) on which the service will be accessible. Used for the session ID cookie.
 * `FICAI_BETA_KEY` is the extra key a user must give on registration during the inital beta period.
 * `FICAI_BEX_LATEST_VERSION` is the version string for the latest browser extension.
+* `FICAI_FICHUB_BASE_URL` is the base URL of the fichub.net API.
 
 [OWASP-PSCS]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering
 [Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#section-4.2
