@@ -1,7 +1,7 @@
 #!/bin/bash
 
 source test.env
-export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY
+export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY FICAI_BEX_CURRENT_VERSION
 
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
@@ -105,6 +105,14 @@ extractEmail() {
 
 extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".signals[]|select(.tag==\"$1\")"
+}
+
+extractRetired() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".retired"
+}
+
+extractCurrentVersion() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".current_version"
 }
 
 assertSignal() {
@@ -402,6 +410,18 @@ testUnauthorizedGetSignalsEmpty() {
   assertNoSignal worm
   assertNoSignal "taylor hebert"
   assertNoSignal taylor
+}
+
+testGetBex() {
+  request "http://$FICAI_LISTEN/v1/bex/versions/v0.1.0"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals false "$( extractRetired )"
+  assertEquals "${FICAI_BEX_CURRENT_VERSION}" "$( extractCurrentVersion )"
+
+  request "http://$FICAI_LISTEN/v1/bex/versions/v0.0.0"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals true "$( extractRetired )"
+  assertEquals "${FICAI_BEX_CURRENT_VERSION}" "$( extractCurrentVersion )"
 }
 
 source shunit2

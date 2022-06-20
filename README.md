@@ -16,6 +16,7 @@ The server expects the following environment variables to be set:
 * `FICAI_PWD_PEPPER` is the pepper value for password hashes. Must be specified as unpadded Base64 with standard alphabet as defined in [RFC-4648]. Recommended minimum length (before Base64 encoding) is 32 bytes, see [Kitten]. You can generate a suitable value by running `openssl rand -base64 32` and stripping any `=` characters from the end of its output. Read more about peppering passwords at [OWASP-PSCS].
 * `FICAI_DOMAIN` is the domain (no URL schema or port!) on which the service will be accessible. Used for the session ID cookie.
 * `FICAI_BETA_KEY` is the extra key a user must give on registration during the inital beta period.
+* `FICAI_BEX_CURRENT_VERSION` is the version string for the latest browser extension.
 
 [OWASP-PSCS]: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering
 [Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#section-4.2
