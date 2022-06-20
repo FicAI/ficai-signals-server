@@ -9,6 +9,7 @@ use warp::{Filter as _, Reply};
 use crate::httputil::{recover_custom, Empty, Error};
 use crate::usermgmt::{authenticate, optional_authenticate, UserSession};
 
+mod fichub;
 mod httputil;
 mod usermgmt;
 
@@ -60,6 +61,11 @@ async fn main() -> eyre::Result<()> {
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
     let bex_current_version: &'static str = Box::leak(cfg.bex_current_version.into_boxed_str());
+
+    let client = reqwest::Client::builder()
+        .user_agent("fic.ai/0.0.1")
+        .build()
+        .wrap_err("failed to build http client")?;
 
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
@@ -123,6 +129,15 @@ async fn main() -> eyre::Result<()> {
             move |v| get_bex_version(v, pool.clone(), bex_current_version)
         });
 
+    let get_fics = warp::path!("v1" / "fics")
+        .and(warp::get())
+        .and(warp::query::<GetFicsQ>())
+        .then({
+            let pool = pool.clone();
+            let client = client.clone();
+            move |q| get_fics(q, client.clone(), pool.clone())
+        });
+
     // todo: graceful shutdown
     warp::serve(
         create_user
@@ -134,6 +149,7 @@ async fn main() -> eyre::Result<()> {
             .or(get_urls)
             .or(get_tags)
             .or(get_bex_version)
+            .or(get_fics)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -364,4 +380,17 @@ async fn get_bex_version(
         current_version: bex_current_version.to_string(),
     })
     .into_response()
+}
+
+#[derive(Deserialize, Debug)]
+struct GetFicsQ {
+    url: String,
+}
+
+async fn get_fics(q: GetFicsQ, client: reqwest::Client, _pool: DB) -> http::Response<hyper::Body> {
+    json_or_error(
+        fichub::meta(client, &q.url)
+            .await
+            .wrap_err("failed to query meta"),
+    )
 }

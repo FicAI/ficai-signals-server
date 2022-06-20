@@ -6,7 +6,7 @@ export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSW
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
-TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_URL="https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"
 TEST_TAG="tag_${TEST_TS}"
 TEST_UID="none"
 
@@ -153,6 +153,14 @@ assertTag() {
 
 assertNoTag() {
   assertEquals "tag not present" "" "$( extractTag "$1" )"
+}
+
+extractFicId() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
+}
+
+extractFicTitle() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".title"
 }
 
 oneTimeSetUp() {
@@ -468,6 +476,28 @@ testGetBex() {
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals true "$( extractRetired )"
   assertEquals "${FICAI_BEX_CURRENT_VERSION}" "$( extractCurrentVersion )"
+}
+
+testGetFicInvalidQuery() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "urlz=${TEST_URL}"
+  assertStatus 'HTTP/1.1 400 Bad Request'
+  assertError 'bad_request' 'bad request query'
+}
+
+testGetFic() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=${TEST_URL}"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals 'NtePoQrV' "$( extractFicId )"
+  assertEquals 'Nemesis' "$( extractFicTitle )"
+}
+
+testGetFicError() {
+  request "http://$FICAI_LISTEN/v1/fics" \
+    -G --data-urlencode "url=not-a-fic"
+  assertStatus 'HTTP/1.1 500 Internal Server Error'
+  assertEquals 'error code' "internal_server_error" "$( show_output | jq -r .code )"
 }
 
 source shunit2
