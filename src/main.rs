@@ -25,6 +25,7 @@ struct Config {
     pwd_pepper: String,
     domain: String,
     beta_key: String,
+    bex_current_version: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -58,6 +59,7 @@ async fn main() -> eyre::Result<()> {
 
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
+    let bex_current_version: &'static str = Box::leak(cfg.bex_current_version.into_boxed_str());
 
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
@@ -114,6 +116,13 @@ async fn main() -> eyre::Result<()> {
             move |q| get_tags(q, pool.clone())
         });
 
+    let get_bex_version = warp::path!("v1" / "bex" / "versions" / String)
+        .and(warp::get())
+        .then({
+            let pool = pool.clone();
+            move |v| get_bex_version(v, pool.clone(), bex_current_version)
+        });
+
     // todo: graceful shutdown
     warp::serve(
         create_user
@@ -124,6 +133,7 @@ async fn main() -> eyre::Result<()> {
             .or(patch)
             .or(get_urls)
             .or(get_tags)
+            .or(get_bex_version)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -336,4 +346,22 @@ limit $2",
         .map(|tags| JustTags { tags })
         .wrap_err("failed to query tags"),
     )
+}
+
+#[derive(Serialize)]
+struct Bex {
+    retired: bool,
+    current_version: String,
+}
+
+async fn get_bex_version(
+    v: String,
+    _pool: DB,
+    bex_current_version: &str,
+) -> http::Response<hyper::Body> {
+    warp::reply::json(&Bex {
+        retired: v == "v0.0.0",
+        current_version: bex_current_version.to_string(),
+    })
+    .into_response()
 }
