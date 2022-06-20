@@ -109,6 +109,10 @@ assertNoSignal() {
   assertEquals "$1" "" "$( extractSignal "$1" )"
 }
 
+extractFirstTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[0]"
+}
+
 extractTag() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.==\"$1\")"
 }
@@ -229,6 +233,13 @@ testAdd() {
   assertSignal taylor true 1 0
 }
 
+testGetTagsInvalidQuery() {
+  request "http://$FICAI_LISTEN/v1/signals" \
+    -G --data-urlencode "limit=five"
+  assertStatus 'HTTP/1.1 400 Bad Request'
+  assertError 'bad request query'
+}
+
 testGetTags() {
   request "http://$FICAI_LISTEN/v1/tags"
   assertStatus 'HTTP/1.1 200 OK'
@@ -240,6 +251,16 @@ testGetTags() {
   request "http://$FICAI_LISTEN/v1/tags"
   assertStatus 'HTTP/1.1 200 OK'
   assertTag "${TEST_TAG}"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=taylor&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals 'taylor' "$( extractFirstTag )"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=$TEST_TAG&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "$TEST_TAG" "$( extractFirstTag )"
 
   request_patch "$TEST_URL" "%${TEST_TAG}"
   request "http://$FICAI_LISTEN/v1/tags"
@@ -262,6 +283,15 @@ testErase() {
   assertStatus 'HTTP/1.1 200 OK'
   assertSignal worm true 1 0
   assertSignal "taylor hebert" true 1 0
+  assertNoSignal taylor
+}
+
+testErase2() {
+  request_patch "$TEST_URL" '%taylor hebert' '%worm'
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoSignal worm
+  assertNoSignal "taylor hebert"
   assertNoSignal taylor
 }
 

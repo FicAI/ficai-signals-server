@@ -13,6 +13,9 @@ create table session (
   , account_id bigint not null references account(id)
 );
 
+-- Used for levenshtein in tag search.
+create extension if not exists fuzzystrmatch;
+
 create table signal (
     account_id bigint not null references account(id)
   , url varchar(1024) not null

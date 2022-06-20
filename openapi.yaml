@@ -147,6 +147,20 @@ paths:
       operationId: getTags
       tags:
         - tags
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: An optional partial tag query used to order results.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: An optional maximum limit to the number of returned results.
+          schema:
+            type: integer
+            format: int64
       responses:
         '200':
           description: Existing tags.
