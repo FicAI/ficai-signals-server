@@ -106,10 +106,13 @@ async fn main() -> eyre::Result<()> {
         let pool = pool.clone();
         move || get_urls(pool.clone())
     });
-    let get_tags = warp::path!("v1" / "tags").and(warp::get()).then({
-        let pool = pool.clone();
-        move || get_tags(pool.clone())
-    });
+    let get_tags = warp::path!("v1" / "tags")
+        .and(warp::get())
+        .and(warp::query::<GetTagsQ>())
+        .then({
+            let pool = pool.clone();
+            move |q| get_tags(q, pool.clone())
+        });
 
     // todo: graceful shutdown
     warp::serve(
@@ -297,18 +300,40 @@ async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
     )
 }
 
+#[derive(Deserialize, Debug)]
+struct GetTagsQ {
+    q: Option<String>,
+    limit: Option<i64>,
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct JustTags {
     tags: Vec<String>,
 }
 
-async fn get_tags(pool: DB) -> http::Response<hyper::Body> {
+async fn get_tags(q: GetTagsQ, pool: DB) -> http::Response<hyper::Body> {
+    // todo: something better than levenshtein, this is pretty bad
     json_or_error(
-        sqlx::query_scalar::<_, String>("select distinct tag from signal")
-            .fetch_all(&pool)
-            .await
-            .map(|tags| JustTags { tags })
-            .wrap_err("failed to query tags"),
+        sqlx::query_scalar::<_, String>(
+            "
+select tag
+from signal
+group by tag
+order by
+    (
+        levenshtein(tag, $1) * 1.0
+        / greatest(octet_length(tag), octet_length($1))
+    ) asc,
+    count(1) desc,
+    tag asc
+limit $2",
+        )
+        .bind(&q.q)
+        .bind(&q.limit.unwrap_or(1000))
+        .fetch_all(&pool)
+        .await
+        .map(|tags| JustTags { tags })
+        .wrap_err("failed to query tags"),
     )
 }

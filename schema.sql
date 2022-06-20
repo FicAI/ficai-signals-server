@@ -1,3 +1,5 @@
+create extension if not exists fuzzystrmatch;
+
 create sequence user_id_seq as bigint;
 
 create table "user" (

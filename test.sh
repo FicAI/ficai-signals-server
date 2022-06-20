@@ -108,6 +108,10 @@ extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.tag==\"$1\")"
 }
 
+extractFirstTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[0]"
+}
+
 assertSignal() {
   local TAG="$( extractSignal "$1" )"
   assertEquals "$1" "$2" "$(echo "$TAG" | jq -r '.signal')"
@@ -259,6 +263,13 @@ testAdd() {
   assertSignal taylor true 1 0
 }
 
+testGetTagsInvalidQuery() {
+  request "http://$FICAI_LISTEN/v1/signals" \
+    -G --data-urlencode "limit=five"
+  assertStatus 'HTTP/1.1 400 Bad Request'
+  assertError 'bad_request' 'bad request query'
+}
+
 testGetTags() {
   request "http://$FICAI_LISTEN/v1/tags"
   assertStatus 'HTTP/1.1 200 OK'
@@ -270,6 +281,16 @@ testGetTags() {
   request "http://$FICAI_LISTEN/v1/tags"
   assertStatus 'HTTP/1.1 200 OK'
   assertTag "${TEST_TAG}"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=taylor&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals 'taylor' "$( extractFirstTag )"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=$TEST_TAG&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "$TEST_TAG" "$( extractFirstTag )"
 
   request_patch "$TEST_URL" "%${TEST_TAG}"
   request "http://$FICAI_LISTEN/v1/tags"
