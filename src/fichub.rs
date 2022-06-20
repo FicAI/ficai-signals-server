@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Meta {
-    id: String,
-    source: String,
-    title: String,
+    pub id: String,
+    pub source: String,
+    pub title: String,
     author: String,
     chapters: i64,
     words: i64,

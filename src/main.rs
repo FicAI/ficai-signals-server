@@ -4,7 +4,11 @@ use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use warp::{Filter as _, Reply};
+use tap::prelude::*;
+use warp::{
+    reply::{json, with_status},
+    Filter as _, Reply,
+};
 
 use crate::httputil::{recover_custom, Empty, Error};
 use crate::usermgmt::{authenticate, optional_authenticate, UserSession};
@@ -99,7 +103,8 @@ async fn main() -> eyre::Result<()> {
         .and(warp::query::<GetQueryParams>())
         .then({
             let pool = pool.clone();
-            move |user, q: GetQueryParams| get_signals(user, q.url, pool.clone())
+            let client = client.clone();
+            move |user, q: GetQueryParams| get_signals(user, q.url, client.clone(), pool.clone())
         });
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -107,7 +112,8 @@ async fn main() -> eyre::Result<()> {
         .and(warp::body::json::<PatchQuery>())
         .then({
             let pool = pool.clone();
-            move |user, q: PatchQuery| patch(user, q, pool.clone())
+            let client = client.clone();
+            move |user, q: PatchQuery| patch(user, q, client.clone(), pool.clone())
         });
 
     let get_urls = warp::path!("v1" / "urls").and(warp::get()).then({
@@ -174,7 +180,7 @@ struct TagInfo {
 }
 
 impl TagInfo {
-    pub async fn get(pool: &DB, uid: Option<i64>, url: String) -> eyre::Result<Vec<TagInfo>> {
+    pub async fn get(pool: &DB, uid: Option<i64>, fic: &Fic) -> eyre::Result<Vec<TagInfo>> {
         Ok(sqlx::query_as::<_, TagInfo>(
             "
 select
@@ -183,12 +189,12 @@ select
     sum(case when signal then 0 else 1 end) as signals_against,
     bool_or(signal) filter (where user_id = $1) as signal
 from signal
-where url = $2
+where fic_id = $2
 group by tag
     ",
         )
         .bind(uid)
-        .bind(url)
+        .bind(&fic.id)
         .fetch_all(pool)
         .await?)
     }
@@ -197,18 +203,37 @@ group by tag
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Tags {
+    fic: Fic,
     tags: Vec<TagInfo>,
+}
+
+fn fic_not_found() -> Error {
+    Error {
+        code: "not_found".to_string(),
+        message: "fic not found".to_string(),
+    }
 }
 
 async fn get_signals(
     user: Option<UserSession>,
     url: String,
+    client: reqwest::Client,
     pool: DB,
 ) -> http::Response<hyper::Body> {
+    let fic = match lookup(&url, client, pool.clone()).await {
+        Ok(Some(fic)) => fic,
+        Ok(None) => {
+            return json(&fic_not_found())
+                .pipe(|r| with_status(r, http::StatusCode::NOT_FOUND))
+                .into_response()
+        }
+        Err(e) => return reply_error(e),
+    };
+
     json_or_error(
-        TagInfo::get(&pool, user.map(|u| u.id), url)
+        TagInfo::get(&pool, user.map(|u| u.id), &fic)
             .await
-            .map(|tags| Tags { tags })
+            .map(|tags| Tags { fic, tags })
             .wrap_err("failed to get tags"),
     )
 }
@@ -216,16 +241,16 @@ async fn get_signals(
 struct Signal;
 
 impl Signal {
-    pub async fn set(pool: &DB, uid: i64, url: &str, tag: &str, signal: bool) -> eyre::Result<()> {
+    pub async fn set(pool: &DB, uid: i64, fic: &Fic, tag: &str, signal: bool) -> eyre::Result<()> {
         sqlx::query(
             "
-insert into signal (user_id, url, tag, signal)
+insert into signal (user_id, fic_id, tag, signal)
 values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
+on conflict (user_id, fic_id, tag) do update set signal = $4
             ",
         )
         .bind(uid)
-        .bind(url)
+        .bind(&fic.id)
         .bind(tag)
         .bind(signal)
         .execute(pool)
@@ -233,10 +258,10 @@ on conflict (user_id, url, tag) do update set signal = $4
         Ok(())
     }
 
-    pub async fn erase(pool: &DB, uid: i64, url: &str, tag: &str) -> eyre::Result<()> {
-        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
+    pub async fn erase(pool: &DB, uid: i64, fic: &Fic, tag: &str) -> eyre::Result<()> {
+        sqlx::query("delete from signal where user_id = $1 and fic_id = $2 and tag = $3")
             .bind(uid)
-            .bind(url)
+            .bind(&fic.id)
             .bind(tag)
             .execute(pool)
             .await?;
@@ -256,24 +281,33 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
+async fn patch_signals(
+    client: reqwest::Client,
+    pool: &DB,
+    uid: i64,
+    q: PatchQuery,
+) -> eyre::Result<()> {
+    let fic = lookup(&q.url, client, pool.clone())
+        .await?
+        .ok_or_else(|| eyre!("fic not found"))?;
+
     for tag in q.add {
         println!("add {}", &tag);
-        Signal::set(pool, uid, &q.url, &tag, true)
+        Signal::set(pool, uid, &fic, &tag, true)
             .await
             .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        Signal::set(pool, uid, &q.url, &tag, false)
+        Signal::set(pool, uid, &fic, &tag, false)
             .await
             .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        Signal::erase(pool, uid, &q.url, &tag)
+        Signal::erase(pool, uid, &fic, &tag)
             .await
             .wrap_err("failed to erase signal")?
     }
@@ -282,9 +316,14 @@ async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
     Ok(())
 }
 
-async fn patch(user: UserSession, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
+async fn patch(
+    user: UserSession,
+    q: PatchQuery,
+    client: reqwest::Client,
+    pool: DB,
+) -> http::Response<hyper::Body> {
     json_or_error(
-        patch_signals(&pool, user.id, q)
+        patch_signals(client, &pool, user.id, q)
             .await
             .map(|_| Empty {})
             .wrap_err("failed to patch signals"),
@@ -295,19 +334,19 @@ fn json_or_error<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
     val: Result<T, E>,
 ) -> http::Response<hyper::Body> {
     match val {
-        Ok(val) => warp::reply::json(&val).into_response(),
-        Err(e) => {
-            eprintln!("error: {:#?}", e);
-            warp::reply::with_status(
-                warp::reply::json(&Error {
-                    code: "internal_server_error".to_string(),
-                    message: format!("{:#}", e),
-                }),
-                http::StatusCode::INTERNAL_SERVER_ERROR,
-            )
-            .into_response()
-        }
+        Ok(val) => json(&val).into_response(),
+        Err(e) => reply_error(e),
     }
+}
+
+fn reply_error<E: std::fmt::Display + std::fmt::Debug>(e: E) -> http::Response<hyper::Body> {
+    eprintln!("error: {:#?}", e);
+    json(&Error {
+        code: "internal_server_error".to_string(),
+        message: format!("{:#}", e),
+    })
+    .pipe(|r| with_status(r, http::StatusCode::INTERNAL_SERVER_ERROR))
+    .into_response()
 }
 
 #[derive(Serialize, Debug)]
@@ -318,7 +357,7 @@ struct URLs {
 
 async fn get_urls(pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        sqlx::query_scalar::<_, String>("select distinct url from signal")
+        sqlx::query_scalar::<_, String>("select distinct url from fic")
             .fetch_all(&pool)
             .await
             .map(|urls| URLs { urls })
@@ -375,7 +414,7 @@ async fn get_bex_version(
     _pool: DB,
     bex_current_version: &str,
 ) -> http::Response<hyper::Body> {
-    warp::reply::json(&Bex {
+    json(&Bex {
         retired: v == "v0.0.0",
         current_version: bex_current_version.to_string(),
     })
@@ -387,10 +426,78 @@ struct GetFicsQ {
     url: String,
 }
 
-async fn get_fics(q: GetFicsQ, client: reqwest::Client, _pool: DB) -> http::Response<hyper::Body> {
+async fn get_fics(q: GetFicsQ, client: reqwest::Client, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        fichub::meta(client, &q.url)
+        lookup(&q.url, client, pool)
             .await
             .wrap_err("failed to query meta"),
     )
+}
+
+#[derive(Serialize, Debug, sqlx::FromRow)]
+pub struct Fic {
+    id: String,
+    title: String,
+}
+
+pub async fn lookup_cached(url: &str, pool: DB) -> eyre::Result<Option<Fic>> {
+    sqlx::query_as::<_, Fic>(
+        "
+            select f.id, f.title
+            from fic_url_cache c
+            join fic f on f.id = c.fic_id
+            where c.url = $1
+        ",
+    )
+    .bind(&url)
+    .fetch_optional(&pool)
+    .await
+    .wrap_err("failed to query fic_url_cache")
+}
+
+pub async fn lookup(url: &str, client: reqwest::Client, pool: DB) -> eyre::Result<Option<Fic>> {
+    if let Some(fic) = lookup_cached(url, pool.clone()).await? {
+        return Ok(Some(fic));
+    }
+
+    let fic = match fichub::meta(client, url).await? {
+        Some(fic) => fic,
+        None => return Ok(None),
+    };
+
+    // Insert actual fic record.
+    sqlx::query(
+        "
+            insert into fic(id, url, title)
+            values($1, $2, $3)
+            on conflict(id) do update set
+                url = EXCLUDED.url,
+                title = EXCLUDED.title
+        ",
+    )
+    .bind(&fic.id)
+    .bind(&fic.source)
+    .bind(&fic.title)
+    .execute(&pool)
+    .await
+    .wrap_err("failed to insert fic")?;
+
+    // Insert url lookup cache entry.
+    sqlx::query(
+        "
+            insert into fic_url_cache(url, fic_id, fetched)
+            values($1, $2, now())
+            on conflict do nothing
+        ",
+    )
+    .bind(&url)
+    .bind(&fic.id)
+    .execute(&pool)
+    .await
+    .wrap_err("failed to insert fic_url_cache")?;
+
+    Ok(Some(Fic {
+        id: fic.id,
+        title: fic.title,
+    }))
 }

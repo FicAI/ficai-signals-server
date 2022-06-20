@@ -123,7 +123,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Tags"
+                $ref: "#/components/schemas/SignalsResponse"
         '400':
           description: Bad request.
           content:
@@ -368,12 +368,15 @@ components:
           description: Number of accounts with negative signals.
           type: integer
           format: int64
-    Tags:
-      description: List af tags for a specific fic.
+    SignalsResponse:
+      description: Signals for a specific fic.
       type: object
       required:
+        - fic
         - tags
       properties:
+        fic:
+          $ref: "#/components/schemas/Fic"
         tags:
           description: The list of tags for this fic.
           type: array

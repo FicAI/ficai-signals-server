@@ -7,6 +7,7 @@ TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"
+TEST_URL2="https://forums.sufficientvelocity.com/threads/nemesis-worm-au.54757/"
 TEST_TAG="tag_${TEST_TS}"
 TEST_UID="none"
 
@@ -261,7 +262,9 @@ testGetInvalidQuery() {
 testGetEmptySignals() {
   request_get
   assertStatus 'HTTP/1.1 200 OK'
-  assertEquals '{"tags":[]}' "$( show_output )"
+  assertEquals '[]' "$(jq '.tags' "$SHUNIT_TMPDIR/out")"
+  assertEquals 'NtePoQrV' "$(jq -r '.fic.id' "$SHUNIT_TMPDIR/out")"
+  assertEquals 'Nemesis' "$(jq -r '.fic.title' "$SHUNIT_TMPDIR/out")"
 }
 
 testAddInvalidJSON() {
@@ -319,27 +322,16 @@ testGetURL() {
   assertStatus 'HTTP/1.1 200 OK'
 
   assertURL "$TEST_URL"
-  assertNoURL "${TEST_URL}.2"
 }
 
 testGetURLs() {
-  request_patch "${TEST_URL}.2" +worm
+  request_patch "${TEST_URL2}" +worm
 
   request "http://$FICAI_LISTEN/v1/urls"
   assertStatus 'HTTP/1.1 200 OK'
 
   assertURL "$TEST_URL"
-  assertURL "${TEST_URL}.2"
-}
-
-testGetURLsReduced() {
-  request_patch "${TEST_URL}.2" %worm
-
-  request "http://$FICAI_LISTEN/v1/urls"
-  assertStatus 'HTTP/1.1 200 OK'
-
-  assertURL "$TEST_URL"
-  assertNoURL "${TEST_URL}.2"
+  assertURL "${TEST_URL2}"
 }
 
 testRm() {
@@ -429,10 +421,11 @@ testErase() {
 }
 
 testGetErasedURL() {
+  # erased URLs still have fic meta present
   request "http://$FICAI_LISTEN/v1/urls"
   assertStatus 'HTTP/1.1 200 OK'
 
-  assertNoURL "$TEST_URL"
+  assertURL "$TEST_URL"
 }
 
 testLogInWithWrongEmail() {
