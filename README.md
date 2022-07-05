@@ -21,7 +21,11 @@ The server expects the following environment variables to be set:
 [Kitten]: https://www.ietf.org/archive/id/draft-ietf-kitten-password-storage-04.html#section-4.2
 [RFC-4648]: https://datatracker.ietf.org/doc/html/rfc4648
 
-# Running with docker-compose
+## Running with docker-compose
 1. Create `.env` file based on `.env.template` to set environment variables
 2. Install Docker (or Docker Desktop for Mac/Windows)
 3. Run `docker-compose up -d --build`. First build might take a while, consequent builds will be faster. SQL migrations in `schema.sql` will run automatically on first launch
+
+## License
+
+ficai-signals-server is licensed under the [MIT](LICENSE) license.
