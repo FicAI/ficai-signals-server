@@ -1,7 +1,7 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use base64ct::Encoding as _;
 use eyre::{bail, WrapErr};
-use http::header::SET_COOKIE;
+use http::header::{CONTENT_TYPE, SET_COOKIE};
 use http::{Response, StatusCode};
 use hyper::Body;
 use rand_core::{OsRng, RngCore};
@@ -122,7 +122,8 @@ pub async fn create_user(
     Ok(Response::builder()
         .status(StatusCode::CREATED)
         .header(SET_COOKIE, session_id_cookie)
-        .body(Body::empty())
+        .header(CONTENT_TYPE, "application/json")
+        .body("{}".into())
         .unwrap())
 }
 
@@ -170,9 +171,10 @@ pub async fn log_in(
     };
     let session_id_cookie = create_session_cookie(session_id_string, domain);
     Ok(Response::builder()
-        .status(StatusCode::NO_CONTENT)
+        .status(StatusCode::OK)
         .header(SET_COOKIE, session_id_cookie)
-        .body(Body::empty())
+        .header(CONTENT_TYPE, "application/json")
+        .body("{}".into())
         .unwrap())
 }
 
@@ -199,12 +201,10 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> 
                 .await;
             match row {
                 Ok(row) => Ok(row.get::<i64, _>("user_id")),
-                Err(sqlx::error::Error::RowNotFound) => {
-                    return Err(warp::reject::custom(Forbidden))
-                }
+                Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);
-                    return Err(warp::reject::custom(InternalError));
+                    Err(warp::reject::custom(InternalError))
                 }
             }
         }

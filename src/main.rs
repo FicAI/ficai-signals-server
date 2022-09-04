@@ -2,13 +2,11 @@ use std::net::SocketAddr;
 
 use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
-use futures::TryStreamExt as _;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::Row as _;
 use warp::{Filter as _, Reply};
 
-use crate::httputil::recover_custom;
+use crate::httputil::{recover_custom, Empty, Error};
 use crate::usermgmt::authenticate;
 
 mod httputil;
@@ -113,13 +111,34 @@ struct GetQueryParams {
     url: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 struct TagInfo {
     tag: String,
     signal: Option<bool>,
     signals_for: i64,
     signals_against: i64,
+}
+
+impl TagInfo {
+    pub async fn get(pool: &DB, uid: i64, url: String) -> eyre::Result<Vec<TagInfo>> {
+        Ok(sqlx::query_as::<_, TagInfo>(
+            "
+select
+    tag,
+    sum(case when signal then 1 else 0 end) as signals_for,
+    sum(case when signal then 0 else 1 end) as signals_against,
+    bool_or(signal) filter (where user_id = $1) as signal
+from signal
+where url = $2
+group by tag
+    ",
+        )
+        .bind(uid)
+        .bind(url)
+        .fetch_all(pool)
+        .await?)
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -129,35 +148,43 @@ struct Tags {
 }
 
 async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
-    let mut rows = sqlx::query(
-        "
-select
-	tag,
-	sum(case when signal then 1 else 0 end) as total_for,
-    sum(case when signal then 0 else 1 end) as total_against,
-    bool_or(signal) filter (where user_id = $1) as my_signal
-from signal
-where url = $2
-group by tag
-",
+    json_or_error(
+        TagInfo::get(&pool, uid, url)
+            .await
+            .map(|tags| Tags { tags })
+            .wrap_err("failed to get tags"),
     )
-    .bind(uid)
-    .bind(url)
-    .fetch(&pool);
+}
 
-    let mut tags = Vec::new();
-    while let Some(row) = rows.try_next().await.unwrap() {
-        let tag_info = TagInfo {
-            tag: row.try_get("tag").unwrap(),
-            signals_for: row.try_get("total_for").unwrap(),
-            signals_against: row.try_get("total_against").unwrap(),
-            signal: row.try_get("my_signal").unwrap(),
-        };
-        tags.push(tag_info);
+struct Signal;
+
+impl Signal {
+    pub async fn set(pool: &DB, uid: i64, url: &str, tag: &str, signal: bool) -> eyre::Result<()> {
+        sqlx::query(
+            "
+insert into signal (user_id, url, tag, signal)
+values ($1, $2, $3, $4)
+on conflict (user_id, url, tag) do update set signal = $4
+            ",
+        )
+        .bind(uid)
+        .bind(url)
+        .bind(tag)
+        .bind(signal)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
-    let tags = Tags { tags };
-    warp::reply::json(&tags).into_response()
+    pub async fn erase(pool: &DB, uid: i64, url: &str, tag: &str) -> eyre::Result<()> {
+        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
+            .bind(uid)
+            .bind(url)
+            .bind(tag)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,57 +199,56 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch(uid: i64, q: PatchQuery, pool: DB) -> impl Reply {
-    // todo: sane error handling
-
+async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
     for tag in q.add {
         println!("add {}", &tag);
-        sqlx::query(
-            "
-insert into signal (user_id, url, tag, signal)
-values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
-        ",
-        )
-        .bind(uid)
-        .bind(&q.url)
-        .bind(tag)
-        .bind(true)
-        .execute(&pool)
-        .await
-        .unwrap();
+        Signal::set(pool, uid, &q.url, &tag, true)
+            .await
+            .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        sqlx::query(
-            "
-insert into signal (user_id, url, tag, signal)
-values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
-        ",
-        )
-        .bind(uid)
-        .bind(&q.url)
-        .bind(tag)
-        .bind(false)
-        .execute(&pool)
-        .await
-        .unwrap();
+        Signal::set(pool, uid, &q.url, &tag, false)
+            .await
+            .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
-            .bind(uid)
-            .bind(&q.url)
-            .bind(tag)
-            .execute(&pool)
+        Signal::erase(pool, uid, &q.url, &tag)
             .await
-            .unwrap();
+            .wrap_err("failed to erase signal")?
     }
 
     println!();
+    Ok(())
+}
 
-    warp::reply::reply()
+async fn patch(uid: i64, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
+    json_or_error(
+        patch_signals(&pool, uid, q)
+            .await
+            .map(|_| Empty {})
+            .wrap_err("failed to patch signals"),
+    )
+}
+
+fn json_or_error<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
+    val: Result<T, E>,
+) -> http::Response<hyper::Body> {
+    match val {
+        Ok(val) => warp::reply::json(&val).into_response(),
+        Err(e) => {
+            eprintln!("error: {:#?}", e);
+            warp::reply::with_status(
+                warp::reply::json(&Error {
+                    code: "internal_server_error".to_string(),
+                    message: format!("{:#}", e),
+                }),
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response()
+        }
+    }
 }
