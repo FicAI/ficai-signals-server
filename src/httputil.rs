@@ -77,7 +77,7 @@ pub async fn recover_custom(r: Rejection) -> Result<impl Reply, Infallible> {
         .find::<warp::filters::body::BodyDeserializeError>()
         .is_some()
     {
-        eprintln!("body deserialiaztion error: {:#?}", r);
+        eprintln!("body deserialization error: {:#?}", r);
         (
             StatusCode::BAD_REQUEST,
             Error {
