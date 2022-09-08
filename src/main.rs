@@ -242,7 +242,6 @@ fn json_or_error<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
             eprintln!("error: {:#?}", e);
             warp::reply::with_status(
                 warp::reply::json(&Error {
-                    code: "internal_server_error".to_string(),
                     message: format!("{:#}", e),
                 }),
                 http::StatusCode::INTERNAL_SERVER_ERROR,

@@ -90,8 +90,7 @@ assertStatus() {
 }
 
 assertError() {
-  assertEquals 'error code' "$1" "$( show_output | jq -r .code )"
-  assertEquals 'error msg' "$2" "$( show_output | jq -r .message )"
+  assertEquals 'error msg' "$1" "$( show_output | jq -r .message )"
 }
 
 extractSignal() {
@@ -142,26 +141,26 @@ headers_line() {
 test404() {
   request "http://$FICAI_LISTEN/derp"
   assertStatus 'HTTP/1.1 404 Not Found'
-  assertError 'not_found' 'not found'
+  assertError 'not found'
 }
 
 test405() {
   request "http://$FICAI_LISTEN/v1/signals" -X PUT
   assertStatus 'HTTP/1.1 405 Method Not Allowed'
-  assertError 'method_not_allowed' 'method not allowed'
+  assertError 'method not allowed'
 }
 
 testUnauthorizedGet() {
   request_get
   assertStatus 'HTTP/1.1 403 Forbidden'
-  assertError 'forbidden' 'forbidden'
+  assertError 'forbidden'
 }
 
 testCreateUserInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
   assertStatus 'HTTP/1.1 400 Bad Request'
-  assertError 'bad_request' 'bad request body'
+  assertError 'bad request body'
 }
 
 testCreateUserInvalidBetaKey() {
@@ -169,7 +168,7 @@ testCreateUserInvalidBetaKey() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"x$FICAI_BETA_KEY\"}"
 
   assertStatus 'HTTP/1.1 400 Bad Request'
-  assertError 'bad_request' 'invalid beta key'
+  assertError 'invalid beta key'
   assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
 }
 
@@ -186,14 +185,14 @@ testCreateUserSecondTime() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
   assertStatus 'HTTP/1.1 409 Conflict'
-  assertError 'conflict' 'account already exists'
+  assertError 'account already exists'
 }
 
 testGetInvalidQuery() {
   request "http://$FICAI_LISTEN/v1/signals" \
     -G --data-urlencode "urlx=$TEST_URL"
   assertStatus 'HTTP/1.1 400 Bad Request'
-  assertError 'bad_request' 'bad request query'
+  assertError 'bad request query'
 }
 
 testGetEmptySignals() {
@@ -206,7 +205,7 @@ testAddInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/signals" \
     -X PATCH -H "Content-Type: application/json" --data-binary "{"
   assertStatus 'HTTP/1.1 400 Bad Request'
-  assertError 'bad_request' 'bad request body'
+  assertError 'bad request body'
 }
 
 testAdd() {
@@ -239,7 +238,7 @@ testLogInInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
   assertStatus 'HTTP/1.1 400 Bad Request'
-  assertError 'bad_request' 'bad request body'
+  assertError 'bad request body'
 }
 
 testLogIn() {
@@ -257,7 +256,7 @@ testLogInWithWrongEmail() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL2\",\"password\":\"pass\"}"
 
   assertStatus 'HTTP/1.1 403 Forbidden'
-  assertError 'forbidden' 'forbidden'
+  assertError 'forbidden'
 }
 
 testLogInWithWrongPassword() {
@@ -265,7 +264,7 @@ testLogInWithWrongPassword() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"wrong pass\"}"
 
   assertStatus 'HTTP/1.1 403 Forbidden'
-  assertError 'forbidden' 'forbidden'
+  assertError 'forbidden'
 }
 
 source shunit2
