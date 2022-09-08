@@ -121,7 +121,7 @@ struct TagInfo {
 }
 
 impl TagInfo {
-    pub async fn get(pool: &DB, uid: i64, url: String) -> eyre::Result<Vec<TagInfo>> {
+    pub async fn get(uid: i64, url: String, pool: &DB) -> eyre::Result<Vec<TagInfo>> {
         Ok(sqlx::query_as::<_, TagInfo>(
             "
 select
@@ -149,7 +149,7 @@ struct Tags {
 
 async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        TagInfo::get(&pool, uid, url)
+        TagInfo::get(uid, url, &pool)
             .await
             .map(|tags| Tags { tags })
             .wrap_err("failed to get tags"),
@@ -159,7 +159,7 @@ async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
 struct Signal;
 
 impl Signal {
-    pub async fn set(pool: &DB, uid: i64, url: &str, tag: &str, signal: bool) -> eyre::Result<()> {
+    pub async fn set(uid: i64, url: &str, tag: &str, signal: bool, pool: &DB) -> eyre::Result<()> {
         sqlx::query(
             "
 insert into signal (user_id, url, tag, signal)
@@ -176,7 +176,7 @@ on conflict (user_id, url, tag) do update set signal = $4
         Ok(())
     }
 
-    pub async fn erase(pool: &DB, uid: i64, url: &str, tag: &str) -> eyre::Result<()> {
+    pub async fn erase(uid: i64, url: &str, tag: &str, pool: &DB) -> eyre::Result<()> {
         sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
             .bind(uid)
             .bind(url)
@@ -199,37 +199,36 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch_signals(pool: &DB, uid: i64, q: PatchQuery) -> eyre::Result<()> {
+async fn patch_signals(uid: i64, q: PatchQuery, pool: &DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
-        Signal::set(pool, uid, &q.url, &tag, true)
+        Signal::set(uid, &q.url, &tag, true, pool)
             .await
             .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        Signal::set(pool, uid, &q.url, &tag, false)
+        Signal::set(uid, &q.url, &tag, false, pool)
             .await
             .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        Signal::erase(pool, uid, &q.url, &tag)
+        Signal::erase(uid, &q.url, &tag, pool)
             .await
             .wrap_err("failed to erase signal")?
     }
 
     println!();
-    Ok(())
+    Ok(Empty {})
 }
 
 async fn patch(uid: i64, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
     json_or_error(
-        patch_signals(&pool, uid, q)
+        patch_signals(uid, q, &pool)
             .await
-            .map(|_| Empty {})
             .wrap_err("failed to patch signals"),
     )
 }
