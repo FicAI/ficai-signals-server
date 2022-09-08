@@ -59,37 +59,34 @@ async fn main() -> eyre::Result<()> {
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
 
+    let authenticate = authenticate(pool.clone());
+    let pool = warp::any().map(move || pool.clone());
+
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
-        .and_then({
-            let pool = pool.clone();
-            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper, domain, beta_key)
-        });
+        .and(pool.clone())
+        .and_then(move |q, pool| crate::usermgmt::create_user(q, pool, pepper, domain, beta_key));
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::LogInQ>())
-        .and_then({
-            let pool = pool.clone();
-            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
-        });
+        .and(pool.clone())
+        .and_then(move |q, pool| crate::usermgmt::log_in(q, pool, pepper, domain));
 
     let get = warp::path!("v1" / "signals")
         .and(warp::get())
-        .and(authenticate(pool.clone()))
+        .and(authenticate.clone())
         .and(warp::query::<GetQueryParams>())
-        .then({
-            let pool = pool.clone();
-            move |uid, q: GetQueryParams| get(uid, q.url, pool.clone())
-        });
+        .and(pool.clone())
+        .then(Tags::get)
+        .then(reply_json);
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
-        .and(authenticate(pool.clone()))
+        .and(authenticate.clone())
         .and(warp::body::json::<PatchQuery>())
-        .then({
-            let pool = pool.clone();
-            move |uid, q: PatchQuery| patch(uid, q, pool.clone())
-        });
+        .and(pool.clone())
+        .then(patch_signals)
+        .then(reply_json);
 
     // todo: graceful shutdown
     warp::serve(
@@ -147,13 +144,14 @@ struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
-    json_or_error(
-        TagInfo::get(uid, url, &pool)
-            .await
-            .map(|tags| Tags { tags })
-            .wrap_err("failed to get tags"),
-    )
+impl Tags {
+    async fn get(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Self> {
+        Ok(Self {
+            tags: TagInfo::get(uid, q.url, &pool)
+                .await
+                .wrap_err("failed to get tags")?,
+        })
+    }
 }
 
 struct Signal;
@@ -199,24 +197,24 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch_signals(uid: i64, q: PatchQuery, pool: &DB) -> eyre::Result<Empty> {
+async fn patch_signals(uid: i64, q: PatchQuery, pool: DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
-        Signal::set(uid, &q.url, &tag, true, pool)
+        Signal::set(uid, &q.url, &tag, true, &pool)
             .await
             .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        Signal::set(uid, &q.url, &tag, false, pool)
+        Signal::set(uid, &q.url, &tag, false, &pool)
             .await
             .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        Signal::erase(uid, &q.url, &tag, pool)
+        Signal::erase(uid, &q.url, &tag, &pool)
             .await
             .wrap_err("failed to erase signal")?
     }
@@ -225,15 +223,7 @@ async fn patch_signals(uid: i64, q: PatchQuery, pool: &DB) -> eyre::Result<Empty
     Ok(Empty {})
 }
 
-async fn patch(uid: i64, q: PatchQuery, pool: DB) -> http::Response<hyper::Body> {
-    json_or_error(
-        patch_signals(uid, q, &pool)
-            .await
-            .wrap_err("failed to patch signals"),
-    )
-}
-
-fn json_or_error<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
+async fn reply_json<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
     val: Result<T, E>,
 ) -> http::Response<hyper::Body> {
     match val {
