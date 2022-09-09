@@ -45,6 +45,11 @@ paths:
       responses:
         '200':
           description: Success.
+          headers:
+            FicAiSession:
+              schema:
+                type: string
+              description: Session cookie.
           content:
             application/json:
               schema:
