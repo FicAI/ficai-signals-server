@@ -2,13 +2,11 @@ use std::net::SocketAddr;
 
 use base64ct::Encoding as _;
 use eyre::{eyre, WrapErr};
-use futures::TryStreamExt as _;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::Row as _;
 use warp::{Filter as _, Reply};
 
-use crate::httputil::recover_custom;
+use crate::httputil::{recover_custom, Empty, Error};
 use crate::usermgmt::authenticate;
 
 mod httputil;
@@ -61,37 +59,34 @@ async fn main() -> eyre::Result<()> {
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
 
+    let authenticate = authenticate(pool.clone());
+    let pool = warp::any().map(move || pool.clone());
+
     let create_user = warp::path!("v1" / "accounts")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
-        .and_then({
-            let pool = pool.clone();
-            move |q| crate::usermgmt::create_user(q, pool.clone(), pepper, domain, beta_key)
-        });
+        .and(pool.clone())
+        .and_then(move |q, pool| crate::usermgmt::create_user(q, pool, pepper, domain, beta_key));
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::LogInQ>())
-        .and_then({
-            let pool = pool.clone();
-            move |q| crate::usermgmt::log_in(q, pool.clone(), pepper, domain)
-        });
+        .and(pool.clone())
+        .and_then(move |q, pool| crate::usermgmt::log_in(q, pool, pepper, domain));
 
     let get = warp::path!("v1" / "signals")
         .and(warp::get())
-        .and(authenticate(pool.clone()))
+        .and(authenticate.clone())
         .and(warp::query::<GetQueryParams>())
-        .then({
-            let pool = pool.clone();
-            move |uid, q: GetQueryParams| get(uid, q.url, pool.clone())
-        });
+        .and(pool.clone())
+        .then(Tags::get)
+        .then(reply_json);
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
-        .and(authenticate(pool.clone()))
+        .and(authenticate.clone())
         .and(warp::body::json::<PatchQuery>())
-        .then({
-            let pool = pool.clone();
-            move |uid, q: PatchQuery| patch(uid, q, pool.clone())
-        });
+        .and(pool.clone())
+        .then(patch_signals)
+        .then(reply_json);
 
     // todo: graceful shutdown
     warp::serve(
@@ -113,7 +108,7 @@ struct GetQueryParams {
     url: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 struct TagInfo {
     tag: String,
@@ -122,42 +117,72 @@ struct TagInfo {
     signals_against: i64,
 }
 
+impl TagInfo {
+    pub async fn get(uid: i64, url: String, pool: &DB) -> eyre::Result<Vec<TagInfo>> {
+        Ok(sqlx::query_as::<_, TagInfo>(
+            "
+select
+    tag,
+    sum(case when signal then 1 else 0 end) as signals_for,
+    sum(case when signal then 0 else 1 end) as signals_against,
+    bool_or(signal) filter (where user_id = $1) as signal
+from signal
+where url = $2
+group by tag
+    ",
+        )
+        .bind(uid)
+        .bind(url)
+        .fetch_all(pool)
+        .await?)
+    }
+}
+
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Tags {
     tags: Vec<TagInfo>,
 }
 
-async fn get(uid: i64, url: String, pool: DB) -> http::Response<hyper::Body> {
-    let mut rows = sqlx::query(
-        "
-select
-	tag,
-	sum(case when signal then 1 else 0 end) as total_for,
-    sum(case when signal then 0 else 1 end) as total_against,
-    bool_or(signal) filter (where user_id = $1) as my_signal
-from signal
-where url = $2
-group by tag
-",
-    )
-    .bind(uid)
-    .bind(url)
-    .fetch(&pool);
+impl Tags {
+    async fn get(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Self> {
+        Ok(Self {
+            tags: TagInfo::get(uid, q.url, &pool)
+                .await
+                .wrap_err("failed to get tags")?,
+        })
+    }
+}
 
-    let mut tags = Vec::new();
-    while let Some(row) = rows.try_next().await.unwrap() {
-        let tag_info = TagInfo {
-            tag: row.try_get("tag").unwrap(),
-            signals_for: row.try_get("total_for").unwrap(),
-            signals_against: row.try_get("total_against").unwrap(),
-            signal: row.try_get("my_signal").unwrap(),
-        };
-        tags.push(tag_info);
+struct Signal;
+
+impl Signal {
+    pub async fn set(uid: i64, url: &str, tag: &str, signal: bool, pool: &DB) -> eyre::Result<()> {
+        sqlx::query(
+            "
+insert into signal (user_id, url, tag, signal)
+values ($1, $2, $3, $4)
+on conflict (user_id, url, tag) do update set signal = $4
+            ",
+        )
+        .bind(uid)
+        .bind(url)
+        .bind(tag)
+        .bind(signal)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 
-    let tags = Tags { tags };
-    warp::reply::json(&tags).into_response()
+    pub async fn erase(uid: i64, url: &str, tag: &str, pool: &DB) -> eyre::Result<()> {
+        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
+            .bind(uid)
+            .bind(url)
+            .bind(tag)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -172,57 +197,46 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch(uid: i64, q: PatchQuery, pool: DB) -> impl Reply {
-    // todo: sane error handling
-
+async fn patch_signals(uid: i64, q: PatchQuery, pool: DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
-        sqlx::query(
-            "
-insert into signal (user_id, url, tag, signal)
-values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
-        ",
-        )
-        .bind(uid)
-        .bind(&q.url)
-        .bind(tag)
-        .bind(true)
-        .execute(&pool)
-        .await
-        .unwrap();
+        Signal::set(uid, &q.url, &tag, true, &pool)
+            .await
+            .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        sqlx::query(
-            "
-insert into signal (user_id, url, tag, signal)
-values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
-        ",
-        )
-        .bind(uid)
-        .bind(&q.url)
-        .bind(tag)
-        .bind(false)
-        .execute(&pool)
-        .await
-        .unwrap();
+        Signal::set(uid, &q.url, &tag, false, &pool)
+            .await
+            .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
-            .bind(uid)
-            .bind(&q.url)
-            .bind(tag)
-            .execute(&pool)
+        Signal::erase(uid, &q.url, &tag, &pool)
             .await
-            .unwrap();
+            .wrap_err("failed to erase signal")?
     }
 
     println!();
+    Ok(Empty {})
+}
 
-    warp::reply::reply()
+async fn reply_json<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
+    val: Result<T, E>,
+) -> http::Response<hyper::Body> {
+    match val {
+        Ok(val) => warp::reply::json(&val).into_response(),
+        Err(e) => {
+            eprintln!("error: {:#?}", e);
+            warp::reply::with_status(
+                warp::reply::json(&Error {
+                    message: format!("{:#}", e),
+                }),
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response()
+        }
+    }
 }
