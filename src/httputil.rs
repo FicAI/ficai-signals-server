@@ -15,6 +15,12 @@ pub struct Error {
     pub message: String,
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorWrap {
+    pub error: Error,
+}
+
 #[derive(Debug)]
 pub struct BadRequest(pub Cow<'static, str>);
 impl Reject for BadRequest {}
@@ -68,6 +74,8 @@ pub async fn recover_custom(r: Rejection) -> Result<impl Reply, Infallible> {
         )
     };
 
-    let json = warp::reply::json(&Error { message });
+    let json = warp::reply::json(&ErrorWrap {
+        error: Error { message },
+    });
     Ok(warp::reply::with_status(json, status))
 }

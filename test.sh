@@ -90,7 +90,7 @@ assertStatus() {
 }
 
 assertError() {
-  assertEquals 'error msg' "$1" "$( show_output | jq -r .message )"
+  assertEquals 'error msg' "$1" "$( show_output | jq -r .error.message )"
 }
 
 extractSignal() {
