@@ -138,20 +138,23 @@ components:
       description: Empty object response.
       type: object
     Error:
-      description: Details about the unsuccessful fulfillment of a request.
+      description: |
+        Details about the unsuccessful fulfillment of a request.
+
+        Refer to the http status for a machine readable error code.
       type: object
       required:
-        - code
-        - message
+        - error
       properties:
-        code:
-          description: Machine readable error code.
-          type: string
-          example: 'bad_request'
-        message:
-          description: Human readable error message.
-          type: string
-          example: 'bad request'
+        error:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              description: Human readable error message.
+              type: string
+              example: 'bad request'
     CreateAccountRequest:
       description: Request body to create an account.
       type: object
