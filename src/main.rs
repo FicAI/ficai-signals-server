@@ -84,7 +84,7 @@ async fn main() -> eyre::Result<()> {
         .and(pool.clone())
         .then(get_signals)
         .then(reply_json);
-    let patch = warp::path!("v1" / "signals")
+    let patch_signals = warp::path!("v1" / "signals")
         .and(warp::patch())
         .and(authenticate.clone())
         .and(warp::body::json::<PatchQuery>())
@@ -97,7 +97,7 @@ async fn main() -> eyre::Result<()> {
         create_account
             .or(create_session)
             .or(get_signals)
-            .or(patch)
+            .or(patch_signals)
             .recover(recover_custom),
     )
     .run(cfg.listen)
