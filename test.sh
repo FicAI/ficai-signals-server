@@ -156,14 +156,14 @@ testUnauthorizedGet() {
   assertError 'forbidden'
 }
 
-testCreateUserInvalidJSON() {
+testCreateAccountInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
   assertStatus 'HTTP/1.1 400 Bad Request'
   assertError 'bad request body'
 }
 
-testCreateUserInvalidBetaKey() {
+testCreateAccountInvalidBetaKey() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"x$FICAI_BETA_KEY\"}"
 
@@ -172,7 +172,7 @@ testCreateUserInvalidBetaKey() {
   assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
 }
 
-testCreateUser() {
+testCreateAccount() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
 
@@ -181,7 +181,7 @@ testCreateUser() {
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
-testCreateUserSecondTime() {
+testCreateAccountSecondTime() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
   assertStatus 'HTTP/1.1 409 Conflict'

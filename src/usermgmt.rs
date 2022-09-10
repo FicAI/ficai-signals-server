@@ -32,7 +32,7 @@ async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
     let mut inserted = false;
     for _ in 0..3 {
         OsRng.fill_bytes(&mut session_id);
-        let insert_result = sqlx::query("insert into session (id, user_id) values ($1, $2)")
+        let insert_result = sqlx::query("insert into session (id, account_id) values ($1, $2)")
             .bind(&session_id[..])
             .bind(uid)
             .execute(db)
@@ -69,14 +69,14 @@ fn create_session_cookie(session_id: String, domain: &str) -> String {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateUserQ {
+pub struct CreateAccountQ {
     email: String,
     password: String,
     beta_key: String,
 }
 
-pub async fn create_user(
-    q: CreateUserQ,
+pub async fn create_account(
+    q: CreateAccountQ,
     pool: DB,
     pepper: &[u8],
     domain: &str,
@@ -93,7 +93,7 @@ pub async fn create_user(
             .to_string()
     };
     let row =
-        sqlx::query(r#"insert into "user" (email, password_hash) values ($1, $2) returning id"#)
+        sqlx::query(r#"insert into account (email, password_hash) values ($1, $2) returning id"#)
             .bind(q.email)
             .bind(hash)
             .fetch_one(&pool)
@@ -140,7 +140,7 @@ pub async fn log_in(
     pepper: &[u8],
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
-    let row = sqlx::query(r#"select id, password_hash from "user" where email = $1"#)
+    let row = sqlx::query(r#"select id, password_hash from account where email = $1"#)
         .bind(q.email)
         .fetch_optional(&db)
         .await;
@@ -195,12 +195,12 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> 
                 }
             };
 
-            let row = sqlx::query("select user_id from session where id = $1")
+            let row = sqlx::query("select account_id from session where id = $1")
                 .bind(cookie)
                 .fetch_one(&db)
                 .await;
             match row {
-                Ok(row) => Ok(row.get::<i64, _>("user_id")),
+                Ok(row) => Ok(row.get::<i64, _>("account_id")),
                 Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);

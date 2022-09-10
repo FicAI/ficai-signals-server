@@ -62,11 +62,13 @@ async fn main() -> eyre::Result<()> {
     let authenticate = authenticate(pool.clone());
     let pool = warp::any().map(move || pool.clone());
 
-    let create_user = warp::path!("v1" / "accounts")
+    let create_account = warp::path!("v1" / "accounts")
         .and(warp::post())
-        .and(warp::body::json::<crate::usermgmt::CreateUserQ>())
+        .and(warp::body::json::<crate::usermgmt::CreateAccountQ>())
         .and(pool.clone())
-        .and_then(move |q, pool| crate::usermgmt::create_user(q, pool, pepper, domain, beta_key));
+        .and_then(move |q, pool| {
+            crate::usermgmt::create_account(q, pool, pepper, domain, beta_key)
+        });
     let log_in = warp::path!("v1" / "sessions")
         .and(warp::post())
         .and(warp::body::json::<crate::usermgmt::LogInQ>())
@@ -90,7 +92,7 @@ async fn main() -> eyre::Result<()> {
 
     // todo: graceful shutdown
     warp::serve(
-        create_user
+        create_account
             .or(log_in)
             .or(get)
             .or(patch)
@@ -125,7 +127,7 @@ select
     tag,
     sum(case when signal then 1 else 0 end) as signals_for,
     sum(case when signal then 0 else 1 end) as signals_against,
-    bool_or(signal) filter (where user_id = $1) as signal
+    bool_or(signal) filter (where account_id = $1) as signal
 from signal
 where url = $2
 group by tag
@@ -160,9 +162,9 @@ impl Signal {
     pub async fn set(uid: i64, url: &str, tag: &str, signal: bool, pool: &DB) -> eyre::Result<()> {
         sqlx::query(
             "
-insert into signal (user_id, url, tag, signal)
+insert into signal (account_id, url, tag, signal)
 values ($1, $2, $3, $4)
-on conflict (user_id, url, tag) do update set signal = $4
+on conflict (account_id, url, tag) do update set signal = $4
             ",
         )
         .bind(uid)
@@ -175,7 +177,7 @@ on conflict (user_id, url, tag) do update set signal = $4
     }
 
     pub async fn erase(uid: i64, url: &str, tag: &str, pool: &DB) -> eyre::Result<()> {
-        sqlx::query("delete from signal where user_id = $1 and url = $2 and tag = $3")
+        sqlx::query("delete from signal where account_id = $1 and url = $2 and tag = $3")
             .bind(uid)
             .bind(url)
             .bind(tag)
