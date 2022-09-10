@@ -80,14 +80,14 @@ async fn main() -> eyre::Result<()> {
     let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
         .and(authenticate.clone())
-        .and(warp::query::<GetQueryParams>())
+        .and(warp::query::<GetSignalsQ>())
         .and(pool.clone())
         .then(get_signals)
         .then(reply_json);
     let patch_signals = warp::path!("v1" / "signals")
         .and(warp::patch())
         .and(authenticate.clone())
-        .and(warp::body::json::<PatchQuery>())
+        .and(warp::body::json::<PatchSignalsQ>())
         .and(pool.clone())
         .then(patch_signals)
         .then(reply_json);
@@ -108,11 +108,11 @@ async fn main() -> eyre::Result<()> {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct GetQueryParams {
+struct GetSignalsQ {
     url: String,
 }
 
-async fn get_signals(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Signals> {
+async fn get_signals(uid: i64, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
     Signals::get(uid, q.url, &pool)
         .await
         .wrap_err("failed to get signals")
@@ -120,7 +120,7 @@ async fn get_signals(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Sign
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct PatchQuery {
+struct PatchSignalsQ {
     url: String,
     #[serde(default)]
     add: Vec<String>,
@@ -130,7 +130,7 @@ struct PatchQuery {
     erase: Vec<String>,
 }
 
-async fn patch_signals(uid: i64, q: PatchQuery, pool: DB) -> eyre::Result<Empty> {
+async fn patch_signals(uid: i64, q: PatchSignalsQ, pool: DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
         Signal::set(uid, &q.url, &tag, true, &pool)
