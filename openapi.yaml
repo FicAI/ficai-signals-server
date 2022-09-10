@@ -168,7 +168,7 @@ components:
       required:
         - email
         - password
-        - beta_key
+        - betaKey
       properties:
         email:
           description: Account email. Must be unique.
@@ -178,7 +178,7 @@ components:
           description: Account password.
           type: string
           minLength: 8
-        beta_key:
+        betaKey:
           description: Beta access key.
           type: string
     LogInRequest:
@@ -202,8 +202,8 @@ components:
       required:
         - tag
         - signal
-        - signals_for
-        - signals_against
+        - signalsFor
+        - signalsAgainst
       properties:
         tag:
           description: Name of this tag.
@@ -212,11 +212,11 @@ components:
           description: Current account's signal, if any.
           type: boolean
           nullable: true
-        signals_for:
+        signalsFor:
           description: Number of accounts with positive signals.
           type: integer
           format: int64
-        signals_against:
+        signalsAgainst:
           description: Number of accounts with negative signals.
           type: integer
           format: int64
