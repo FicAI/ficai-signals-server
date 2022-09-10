@@ -19,7 +19,14 @@ paths:
               $ref: '#/components/schemas/CreateAccountRequest'
       responses:
         '201':
-          description: Created.
+          description:
+            Created. A session cookie named `FicAiSession` will be returned.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: 'FicAiSession=kd7LzCevWooWOVyefHlh/A; HttpOnly; Secure; Path=/; Domain=fic.ai; Max-Age=630720000; Expires=Fri, 05 Sep 2042 12:54:54 GMT'
+              description: Includes session cookie.
           content:
             application/json:
               schema:
@@ -32,8 +39,8 @@ paths:
                 $ref: "#/components/schemas/Error"
   /sessions:
     post:
-      summary: Log in to an existing account.
-      operationId: logIn
+      summary: Create a new session for an existing account (log in).
+      operationId: createSession
       tags:
         - sessions
       requestBody:
@@ -41,7 +48,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LogInRequest'
+              $ref: '#/components/schemas/CreateSessionRequest'
       responses:
         '200':
           description:
@@ -181,8 +188,8 @@ components:
         betaKey:
           description: Beta access key.
           type: string
-    LogInRequest:
-      description: Request body to log in.
+    CreateSessionRequest:
+      description: Request body to create session (log in).
       type: object
       required:
         - email

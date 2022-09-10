@@ -69,11 +69,11 @@ async fn main() -> eyre::Result<()> {
         .and_then(move |q, pool| {
             crate::usermgmt::create_account(q, pool, pepper, domain, beta_key)
         });
-    let log_in = warp::path!("v1" / "sessions")
+    let create_session = warp::path!("v1" / "sessions")
         .and(warp::post())
-        .and(warp::body::json::<crate::usermgmt::LogInQ>())
+        .and(warp::body::json::<crate::usermgmt::CreateSessionQ>())
         .and(pool.clone())
-        .and_then(move |q, pool| crate::usermgmt::log_in(q, pool, pepper, domain));
+        .and_then(move |q, pool| crate::usermgmt::create_session(q, pool, pepper, domain));
 
     let get = warp::path!("v1" / "signals")
         .and(warp::get())
@@ -93,7 +93,7 @@ async fn main() -> eyre::Result<()> {
     // todo: graceful shutdown
     warp::serve(
         create_account
-            .or(log_in)
+            .or(create_session)
             .or(get)
             .or(patch)
             .recover(recover_custom),

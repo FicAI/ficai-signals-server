@@ -234,14 +234,14 @@ testErase() {
   assertNoSignal taylor
 }
 
-testLogInInvalidJSON() {
+testCreateSessionInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
   assertStatus 'HTTP/1.1 400 Bad Request'
   assertError 'bad request body'
 }
 
-testLogIn() {
+testCreateSession() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
@@ -251,7 +251,7 @@ testLogIn() {
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
-testLogInWithWrongEmail() {
+testCreateSessionWithWrongEmail() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL2\",\"password\":\"pass\"}"
 
@@ -259,7 +259,7 @@ testLogInWithWrongEmail() {
   assertError 'forbidden'
 }
 
-testLogInWithWrongPassword() {
+testCreateSessionWithWrongPassword() {
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"wrong pass\"}"
 
