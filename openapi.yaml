@@ -44,12 +44,14 @@ paths:
               $ref: '#/components/schemas/LogInRequest'
       responses:
         '200':
-          description: Success.
+          description:
+            Success. A session cookie named `FicAiSession` will be returned.
           headers:
-            FicAiSession:
+            Set-Cookie:
               schema:
                 type: string
-              description: Session cookie.
+                example: 'FicAiSession=kd7LzCevWooWOVyefHlh/A; HttpOnly; Secure; Path=/; Domain=fic.ai; Max-Age=630720000; Expires=Fri, 05 Sep 2042 12:54:54 GMT'
+              description: Includes session cookie.
           content:
             application/json:
               schema:
