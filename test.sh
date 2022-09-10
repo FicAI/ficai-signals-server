@@ -94,7 +94,7 @@ assertError() {
 }
 
 extractSignal() {
-  <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.tag==\"$1\")"
+  <"$SHUNIT_TMPDIR/out" jq -r ".signals[]|select(.tag==\"$1\")"
 }
 
 assertSignal() {
@@ -198,7 +198,7 @@ testGetInvalidQuery() {
 testGetEmptySignals() {
   request_get
   assertStatus 'HTTP/1.1 200 OK'
-  assertEquals '{"tags":[]}' "$( show_output )"
+  assertEquals '{"signals":[]}' "$( show_output )"
 }
 
 testAddInvalidJSON() {

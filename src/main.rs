@@ -7,9 +7,11 @@ use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
+use crate::signal::{Signal, Signals};
 use crate::usermgmt::authenticate;
 
 mod httputil;
+mod signal;
 mod usermgmt;
 
 pub type DB = sqlx::PgPool;
@@ -75,12 +77,12 @@ async fn main() -> eyre::Result<()> {
         .and(pool.clone())
         .and_then(move |q, pool| crate::usermgmt::create_session(q, pool, pepper, domain));
 
-    let get = warp::path!("v1" / "signals")
+    let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
         .and(authenticate.clone())
         .and(warp::query::<GetQueryParams>())
         .and(pool.clone())
-        .then(Tags::get)
+        .then(get_signals)
         .then(reply_json);
     let patch = warp::path!("v1" / "signals")
         .and(warp::patch())
@@ -94,7 +96,7 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_account
             .or(create_session)
-            .or(get)
+            .or(get_signals)
             .or(patch)
             .recover(recover_custom),
     )
@@ -110,81 +112,10 @@ struct GetQueryParams {
     url: String,
 }
 
-#[derive(Serialize, Debug, sqlx::FromRow)]
-#[serde(rename_all = "camelCase")]
-struct TagInfo {
-    tag: String,
-    signal: Option<bool>,
-    signals_for: i64,
-    signals_against: i64,
-}
-
-impl TagInfo {
-    pub async fn get(uid: i64, url: String, pool: &DB) -> eyre::Result<Vec<TagInfo>> {
-        Ok(sqlx::query_as::<_, TagInfo>(
-            "
-select
-    tag,
-    sum(case when signal then 1 else 0 end) as signals_for,
-    sum(case when signal then 0 else 1 end) as signals_against,
-    bool_or(signal) filter (where account_id = $1) as signal
-from signal
-where url = $2
-group by tag
-    ",
-        )
-        .bind(uid)
-        .bind(url)
-        .fetch_all(pool)
-        .await?)
-    }
-}
-
-#[derive(Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
-struct Tags {
-    tags: Vec<TagInfo>,
-}
-
-impl Tags {
-    async fn get(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Self> {
-        Ok(Self {
-            tags: TagInfo::get(uid, q.url, &pool)
-                .await
-                .wrap_err("failed to get tags")?,
-        })
-    }
-}
-
-struct Signal;
-
-impl Signal {
-    pub async fn set(uid: i64, url: &str, tag: &str, signal: bool, pool: &DB) -> eyre::Result<()> {
-        sqlx::query(
-            "
-insert into signal (account_id, url, tag, signal)
-values ($1, $2, $3, $4)
-on conflict (account_id, url, tag) do update set signal = $4
-            ",
-        )
-        .bind(uid)
-        .bind(url)
-        .bind(tag)
-        .bind(signal)
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
-
-    pub async fn erase(uid: i64, url: &str, tag: &str, pool: &DB) -> eyre::Result<()> {
-        sqlx::query("delete from signal where account_id = $1 and url = $2 and tag = $3")
-            .bind(uid)
-            .bind(url)
-            .bind(tag)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
+async fn get_signals(uid: i64, q: GetQueryParams, pool: DB) -> eyre::Result<Signals> {
+    Signals::get(uid, q.url, &pool)
+        .await
+        .wrap_err("failed to get signals")
 }
 
 #[derive(Deserialize, Debug)]

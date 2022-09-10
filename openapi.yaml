@@ -87,7 +87,7 @@ paths:
         - name: url
           in: query
           required: true
-          description: The URL of the fic to retrieve tags for.
+          description: The URL of the fic to retrieve signals for.
           schema:
             type: string
       responses:
@@ -96,7 +96,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Tags"
+                $ref: "#/components/schemas/Signals"
         '400':
           description: Bad request.
           content:
@@ -203,7 +203,7 @@ components:
           description: Account password.
           type: string
           minLength: 8
-    Tag:
+    Signal:
       description: Signal information of a tag for a specific fic.
       type: object
       required:
@@ -213,7 +213,7 @@ components:
         - signalsAgainst
       properties:
         tag:
-          description: Name of this tag.
+          description: Name of the tag.
           type: string
         signal:
           description: Current account's signal, if any.
@@ -227,17 +227,17 @@ components:
           description: Number of accounts with negative signals.
           type: integer
           format: int64
-    Tags:
-      description: List af tags for a specific fic.
+    Signals:
+      description: List of signals for a specific fic.
       type: object
       required:
-        - tags
+        - signals
       properties:
-        tags:
-          description: The list of tags for this fic.
+        signals:
+          description: The list of signals for this fic.
           type: array
           items:
-            $ref: "#/components/schemas/Tag"
+            $ref: "#/components/schemas/Signal"
     PatchSignalsRequest:
       description: Request body to update signals.
       type: object
