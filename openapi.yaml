@@ -8,7 +8,7 @@ paths:
   /accounts:
     post:
       summary: Register a new account.
-      operationId: createAccount
+      operationId: create_account
       tags:
         - accounts
       requestBody:
@@ -40,7 +40,7 @@ paths:
   /sessions:
     post:
       summary: Create a new session for an existing account (log in).
-      operationId: createSession
+      operationId: create_session
       tags:
         - sessions
       requestBody:
@@ -78,7 +78,7 @@ paths:
   /signals:
     get:
       summary: Get signals for a fic.
-      operationId: getSignals
+      operationId: get_signals
       tags:
         - signals
       security:
@@ -111,7 +111,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     patch:
       summary: Update signals for a fic.
-      operationId: patchSignals
+      operationId: patch_signals
       tags:
         - signals
       security:
