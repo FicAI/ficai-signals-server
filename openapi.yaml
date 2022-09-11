@@ -16,7 +16,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateAccountRequest'
+              $ref: '#/components/schemas/CreateAccountQ'
       responses:
         '201':
           description:
@@ -48,7 +48,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateSessionRequest'
+              $ref: '#/components/schemas/CreateSessionQ'
       responses:
         '200':
           description:
@@ -121,7 +121,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PatchSignalsRequest'
+              $ref: '#/components/schemas/PatchSignalsQ'
       responses:
         '200':
           description: Success.
@@ -169,7 +169,7 @@ components:
               description: Human readable error message.
               type: string
               example: 'bad request'
-    CreateAccountRequest:
+    CreateAccountQ:
       description: Request body to create an account.
       type: object
       required:
@@ -188,7 +188,7 @@ components:
         betaKey:
           description: Beta access key.
           type: string
-    CreateSessionRequest:
+    CreateSessionQ:
       description: Request body to create session (log in).
       type: object
       required:
@@ -238,7 +238,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Signal"
-    PatchSignalsRequest:
+    PatchSignalsQ:
       description: Request body to update signals.
       type: object
       required:
