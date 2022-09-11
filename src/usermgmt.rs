@@ -6,7 +6,6 @@ use http::{Response, StatusCode};
 use hyper::Body;
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sqlx::Row as _;
 use tap::prelude::*;
 use warp::{
     reply::{json, with_header, with_status},
@@ -113,14 +112,15 @@ pub async fn create_account(
             .expect("failed to hash password")
             .to_string()
     };
-    let row =
-        sqlx::query(r#"insert into account (email, password_hash) values ($1, $2) returning id"#)
-            .bind(&q.email)
-            .bind(hash)
-            .fetch_one(&pool)
-            .await;
-    let uid: i64 = match row {
-        Ok(row) => row.get("id"),
+    let row = sqlx::query_scalar::<_, i64>(
+        "insert into account (email, password_hash) values ($1, $2) returning id",
+    )
+    .bind(&q.email)
+    .bind(hash)
+    .fetch_one(&pool)
+    .await;
+    let uid = match row {
+        Ok(uid) => uid,
         Err(sqlx::Error::Database(db_err))
             if db_err.code() == Some(CONSTRAINT_VIOLATION_SQLSTATE.into()) =>
         {
@@ -158,17 +158,19 @@ pub async fn create_session(
     pepper: &[u8],
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
-    let row = sqlx::query(r#"select id, password_hash from account where email = $1"#)
-        .bind(&q.email)
-        .fetch_optional(&db)
-        .await;
-    let (uid, db_hash_string): (i64, String) = match row {
-        Ok(Some(row)) => (row.get("id"), row.get("password_hash")),
-        Ok(None) => return Err(warp::reject::custom(Forbidden)),
-        Err(e) => {
-            eprintln!("{:?}", e);
-            return Err(warp::reject::custom(InternalError));
-        }
+    let row = sqlx::query_as::<_, (i64, String)>(
+        "select id, password_hash from account where email = $1",
+    )
+    .bind(&q.email)
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| {
+        eprintln!("{:?}", e);
+        warp::reject::custom(InternalError)
+    })?;
+    let (uid, db_hash_string) = match row {
+        Some(row) => row,
+        None => return Err(warp::reject::custom(Forbidden)),
     };
     let db_hash =
         PasswordHash::new(&db_hash_string).map_err(|_| warp::reject::custom(InternalError))?;
@@ -225,18 +227,9 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (AccountSession,), Error = 
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
-            let cookie = match cookie {
-                Some(cookie) => cookie,
-                None => return Err(warp::reject::custom(Forbidden)),
-            };
-            let cookie = match base64ct::Base64Unpadded::decode_vec(&cookie) {
-                Ok(cookie) => cookie,
-                Err(_) => {
-                    return Err(warp::reject::custom(BadRequest(
-                        "invalid auth cookie".into(),
-                    )))
-                }
-            };
+            let cookie = cookie.ok_or_else(|| warp::reject::custom(Forbidden))?;
+            let cookie = base64ct::Base64Unpadded::decode_vec(&cookie)
+                .map_err(|_| warp::reject::custom(BadRequest("invalid auth cookie".into())))?;
 
             let row = sqlx::query_as::<_, AccountSession>(
                 r#"
