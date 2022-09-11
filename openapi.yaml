@@ -1,0 +1,268 @@
+openapi: "3.0.0"
+info:
+  version: 0.1.0
+  title: Fic.AI Signals
+servers:
+  - url: https://fic.ai/v1
+paths:
+  /accounts:
+    post:
+      summary: Register a new account.
+      operationId: create_account
+      tags:
+        - accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountQ'
+      responses:
+        '201':
+          description:
+            Created. A session cookie named `FicAiSession` will be returned.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: 'FicAiSession=kd7LzCevWooWOVyefHlh/A; HttpOnly; Secure; Path=/; Domain=fic.ai; Max-Age=630720000; Expires=Fri, 05 Sep 2042 12:54:54 GMT'
+              description: Includes session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyObject"
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /sessions:
+    post:
+      summary: Create a new session for an existing account (log in).
+      operationId: create_session
+      tags:
+        - sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionQ'
+      responses:
+        '200':
+          description:
+            Success. A session cookie named `FicAiSession` will be returned.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: 'FicAiSession=kd7LzCevWooWOVyefHlh/A; HttpOnly; Secure; Path=/; Domain=fic.ai; Max-Age=630720000; Expires=Fri, 05 Sep 2042 12:54:54 GMT'
+              description: Includes session cookie.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyObject"
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /signals:
+    get:
+      summary: Get signals for a fic.
+      operationId: get_signals
+      tags:
+        - signals
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: The URL of the fic to retrieve signals for.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Expected response to a valid request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Signals"
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      summary: Update signals for a fic.
+      operationId: patch_signals
+      tags:
+        - signals
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchSignalsQ'
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyObject"
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: FicAiSession
+  schemas:
+    EmptyObject:
+      description: Empty object response.
+      type: object
+    Error:
+      description: |
+        Details about the unsuccessful fulfillment of a request.
+
+        Refer to the http status for a machine readable error code.
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              description: Human readable error message.
+              type: string
+              example: 'bad request'
+    CreateAccountQ:
+      description: Request body to create an account.
+      type: object
+      required:
+        - email
+        - password
+        - betaKey
+      properties:
+        email:
+          description: Account email. Must be unique.
+          type: string
+          format: email
+        password:
+          description: Account password.
+          type: string
+          minLength: 8
+        betaKey:
+          description: Beta access key.
+          type: string
+    CreateSessionQ:
+      description: Request body to create session (log in).
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          description: Account email. Must be unique.
+          type: string
+          format: email
+        password:
+          description: Account password.
+          type: string
+          minLength: 8
+    Signal:
+      description: Signal information of a tag for a specific fic.
+      type: object
+      required:
+        - tag
+        - signal
+        - signalsFor
+        - signalsAgainst
+      properties:
+        tag:
+          description: Name of the tag.
+          type: string
+        signal:
+          description: Current account's signal, if any.
+          type: boolean
+          nullable: true
+        signalsFor:
+          description: Number of accounts with positive signals.
+          type: integer
+          format: int64
+        signalsAgainst:
+          description: Number of accounts with negative signals.
+          type: integer
+          format: int64
+    Signals:
+      description: List of signals for a specific fic.
+      type: object
+      required:
+        - signals
+      properties:
+        signals:
+          description: The list of signals for this fic.
+          type: array
+          items:
+            $ref: "#/components/schemas/Signal"
+    PatchSignalsQ:
+      description: Request body to update signals.
+      type: object
+      required:
+        - url
+        - add
+        - rm
+        - erase
+      properties:
+        url:
+          description: URL of the fic to update.
+          type: string
+          format: url
+        add:
+          description: Tags to apply positive signals (vote _for_); may be empty.
+          type: array
+          items:
+            type: string
+        rm:
+          description: Tags to apply negative signals (vote _against_); may be empty.
+          type: array
+          items:
+            type: string
+        erase:
+          description: Tags to remove any existing signals (either for or against); may be empty.
+          type: array
+          items:
+            type: string

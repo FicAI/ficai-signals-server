@@ -1,6 +1,6 @@
 use argon2::{Argon2, PasswordHash, PasswordHasher as _, PasswordVerifier as _};
 use base64ct::Encoding as _;
-use eyre::{bail, WrapErr};
+use eyre::{ensure, WrapErr};
 use http::header::{CONTENT_TYPE, SET_COOKIE};
 use http::{Response, StatusCode};
 use hyper::Body;
@@ -27,56 +27,61 @@ fn create_kdf(pepper: &[u8]) -> Argon2 {
     Argon2::new_with_secret(pepper, Argon2id, V0x13, params).expect("failed to initialize Argon2")
 }
 
-async fn create_session(uid: i64, db: &DB) -> eyre::Result<String> {
-    let mut session_id = [0u8; SESSION_ID_BYTES];
-    let mut inserted = false;
-    for _ in 0..3 {
-        OsRng.fill_bytes(&mut session_id);
-        let insert_result = sqlx::query("insert into session (id, user_id) values ($1, $2)")
-            .bind(&session_id[..])
-            .bind(uid)
-            .execute(db)
-            .await;
-        match insert_result {
-            Ok(_) => {
-                inserted = true;
-                break;
-            }
-            Err(sqlx::Error::Database(db_err))
-                if db_err.code() == Some(CONSTRAINT_VIOLATION_SQLSTATE.into()) =>
-            {
-                continue
-            }
-            Err(e) => return Err(e).wrap_err("failed to insert new session"),
-        }
-    }
-    if !inserted {
-        bail!("failed to generate a new session id in 3 attempts");
-    }
-    Ok(base64ct::Base64Unpadded::encode_string(&session_id))
-}
+struct Session(String);
 
-fn create_session_cookie(session_id: String, domain: &str) -> String {
-    cookie::Cookie::build(SESSION_COOKIE_NAME, session_id)
-        .domain(domain)
-        .path("/")
-        .secure(true)
-        .http_only(true)
-        .permanent()
-        .finish()
-        .to_string()
+impl Session {
+    async fn create(uid: i64, db: &DB) -> eyre::Result<Self> {
+        let mut session_id = [0u8; SESSION_ID_BYTES];
+        let mut inserted = false;
+        for _ in 0..3 {
+            OsRng.fill_bytes(&mut session_id);
+            let insert_result = sqlx::query("insert into session (id, account_id) values ($1, $2)")
+                .bind(&session_id[..])
+                .bind(uid)
+                .execute(db)
+                .await;
+            match insert_result {
+                Ok(_) => {
+                    inserted = true;
+                    break;
+                }
+                Err(sqlx::Error::Database(db_err))
+                    if db_err.code() == Some(CONSTRAINT_VIOLATION_SQLSTATE.into()) =>
+                {
+                    continue
+                }
+                Err(e) => return Err(e).wrap_err("failed to insert new session"),
+            }
+        }
+        ensure!(
+            inserted,
+            "failed to generate a new session id in 3 attempts"
+        );
+        Ok(Self(base64ct::Base64Unpadded::encode_string(&session_id)))
+    }
+
+    fn into_cookie(self, domain: &str) -> String {
+        cookie::Cookie::build(SESSION_COOKIE_NAME, self.0)
+            .domain(domain)
+            .path("/")
+            .secure(true)
+            .http_only(true)
+            .permanent()
+            .finish()
+            .to_string()
+    }
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateUserQ {
+pub struct CreateAccountQ {
     email: String,
     password: String,
     beta_key: String,
 }
 
-pub async fn create_user(
-    q: CreateUserQ,
+pub async fn create_account(
+    q: CreateAccountQ,
     pool: DB,
     pepper: &[u8],
     domain: &str,
@@ -93,7 +98,7 @@ pub async fn create_user(
             .to_string()
     };
     let row =
-        sqlx::query(r#"insert into "user" (email, password_hash) values ($1, $2) returning id"#)
+        sqlx::query(r#"insert into account (email, password_hash) values ($1, $2) returning id"#)
             .bind(q.email)
             .bind(hash)
             .fetch_one(&pool)
@@ -111,14 +116,13 @@ pub async fn create_user(
         }
     };
 
-    let session_id_string = match create_session(uid, &pool).await {
-        Ok(session_id_string) => session_id_string,
-        Err(e) => {
+    let session_id_cookie = Session::create(uid, &pool)
+        .await
+        .map_err(|e| {
             eprintln!("{:?}", e);
-            return Err(warp::reject::custom(InternalError));
-        }
-    };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
+            warp::reject::custom(InternalError)
+        })?
+        .into_cookie(domain);
     Ok(Response::builder()
         .status(StatusCode::CREATED)
         .header(SET_COOKIE, session_id_cookie)
@@ -129,18 +133,18 @@ pub async fn create_user(
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct LogInQ {
+pub struct CreateSessionQ {
     email: String,
     password: String,
 }
 
-pub async fn log_in(
-    q: LogInQ,
+pub async fn create_session(
+    q: CreateSessionQ,
     db: DB,
     pepper: &[u8],
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
-    let row = sqlx::query(r#"select id, password_hash from "user" where email = $1"#)
+    let row = sqlx::query(r#"select id, password_hash from account where email = $1"#)
         .bind(q.email)
         .fetch_optional(&db)
         .await;
@@ -162,14 +166,13 @@ pub async fn log_in(
             return Err(warp::reject::custom(Forbidden));
         }
     }
-    let session_id_string = match create_session(uid, &db).await {
-        Ok(session_id_string) => session_id_string,
-        Err(e) => {
+    let session_id_cookie = Session::create(uid, &db)
+        .await
+        .map_err(|e| {
             eprintln!("{:?}", e);
-            return Err(warp::reject::custom(InternalError));
-        }
-    };
-    let session_id_cookie = create_session_cookie(session_id_string, domain);
+            warp::reject::custom(InternalError)
+        })?
+        .into_cookie(domain);
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(SET_COOKIE, session_id_cookie)
@@ -195,12 +198,12 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (i64,), Error = Rejection> 
                 }
             };
 
-            let row = sqlx::query("select user_id from session where id = $1")
+            let row = sqlx::query("select account_id from session where id = $1")
                 .bind(cookie)
                 .fetch_one(&db)
                 .await;
             match row {
-                Ok(row) => Ok(row.get::<i64, _>("user_id")),
+                Ok(row) => Ok(row.get::<i64, _>("account_id")),
                 Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);
