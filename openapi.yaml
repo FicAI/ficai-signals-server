@@ -144,7 +144,7 @@ paths:
   /tags:
     get:
       summary: Get all known fic tags.
-      operationId: getTags
+      operationId: get_tags
       tags:
         - tags
       parameters:
