@@ -169,7 +169,7 @@ testUnauthorizedGetSessionAccount() {
   request "http://$FICAI_LISTEN/v1/sessions"
 
   assertStatus 'HTTP/1.1 403 Forbidden'
-  assertError 'forbidden' 'forbidden'
+  assertError 'forbidden'
 }
 
 testCreateAccountInvalidJSON() {
@@ -281,7 +281,7 @@ testDeleteSessionSecondTime() {
   request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
 
   assertStatus 'HTTP/1.1 403 Forbidden'
-  assertError 'forbidden' 'forbidden'
+  assertError 'forbidden'
   assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
 }
 
