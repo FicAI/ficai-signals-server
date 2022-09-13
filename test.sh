@@ -7,6 +7,7 @@ TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
+TEST_TAG="tag_${TEST_TS}"
 
 DEBUG=no
 
@@ -106,6 +107,22 @@ assertSignal() {
 
 assertNoSignal() {
   assertEquals "$1" "" "$( extractSignal "$1" )"
+}
+
+extractFirstTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[0]"
+}
+
+extractTag() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".tags[]|select(.==\"$1\")"
+}
+
+assertTag() {
+  assertEquals "tag present" "$1" "$( extractTag "$1" )"
+}
+
+assertNoTag() {
+  assertEquals "tag not present" "" "$( extractTag "$1" )"
 }
 
 oneTimeSetUp() {
@@ -216,6 +233,41 @@ testAdd() {
   assertSignal taylor true 1 0
 }
 
+testGetTagsInvalidQuery() {
+  request "http://$FICAI_LISTEN/v1/signals" \
+    -G --data-urlencode "limit=five"
+  assertStatus 'HTTP/1.1 400 Bad Request'
+  assertError 'bad request query'
+}
+
+testGetTags() {
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+
+  assertTag "worm"
+  assertNoTag "${TEST_TAG}"
+
+  request_patch "$TEST_URL" "+${TEST_TAG}"
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertTag "${TEST_TAG}"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=taylor&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals 'taylor' "$( extractFirstTag )"
+
+  request "http://$FICAI_LISTEN/v1/tags" \
+    -G --data-urlencode "q=$TEST_TAG&limit=1"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "$TEST_TAG" "$( extractFirstTag )"
+
+  request_patch "$TEST_URL" "%${TEST_TAG}"
+  request "http://$FICAI_LISTEN/v1/tags"
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoTag "${TEST_TAG}"
+}
+
 testRm() {
   request_patch "$TEST_URL" -taylor "+taylor hebert"
   request_get
@@ -231,6 +283,15 @@ testErase() {
   assertStatus 'HTTP/1.1 200 OK'
   assertSignal worm true 1 0
   assertSignal "taylor hebert" true 1 0
+  assertNoSignal taylor
+}
+
+testErase2() {
+  request_patch "$TEST_URL" '%taylor hebert' '%worm'
+  request_get
+  assertStatus 'HTTP/1.1 200 OK'
+  assertNoSignal worm
+  assertNoSignal "taylor hebert"
   assertNoSignal taylor
 }
 

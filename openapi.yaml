@@ -141,6 +141,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /tags:
+    get:
+      summary: Get all known fic tags.
+      operationId: get_tags
+      tags:
+        - tags
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: An optional partial tag query used to order results.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: An optional maximum limit to the number of returned results.
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Existing tags.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - tags
+                properties:
+                  tags:
+                    type: array
+                    items:
+                      type: string
 components:
   securitySchemes:
     cookieAuth:

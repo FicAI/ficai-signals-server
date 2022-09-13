@@ -92,12 +92,20 @@ async fn main() -> eyre::Result<()> {
         .then(patch_signals)
         .then(reply_json);
 
+    let get_tags = warp::path!("v1" / "tags")
+        .and(warp::get())
+        .and(warp::query::<GetTagsQ>())
+        .and(pool.clone())
+        .then(get_tags)
+        .then(reply_json);
+
     // todo: graceful shutdown
     warp::serve(
         create_account
             .or(create_session)
             .or(get_signals)
             .or(patch_signals)
+            .or(get_tags)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -172,4 +180,42 @@ async fn reply_json<T: Serialize, E: std::fmt::Display + std::fmt::Debug>(
             .into_response()
         }
     }
+}
+
+#[derive(Deserialize, Debug)]
+struct GetTagsQ {
+    q: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct Tags {
+    tags: Vec<String>,
+}
+
+async fn get_tags(q: GetTagsQ, pool: DB) -> eyre::Result<Tags> {
+    // todo: something better than levenshtein, this is pretty bad
+    Ok(Tags {
+        tags: sqlx::query_scalar::<_, String>(
+            "
+select tag
+from signal
+group by tag
+order by
+    (
+        levenshtein(tag, $1) * 1.0
+        / greatest(octet_length(tag), octet_length($1))
+    ) asc,
+    count(1) desc,
+    tag asc
+limit $2
+            ",
+        )
+        .bind(&q.q)
+        .bind(&q.limit.unwrap_or(1000))
+        .fetch_all(&pool)
+        .await
+        .wrap_err("failed to query tags")?,
+    })
 }
