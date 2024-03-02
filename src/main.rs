@@ -8,7 +8,7 @@ use warp::{Filter as _, Reply};
 
 use crate::httputil::{recover_custom, Empty, Error};
 use crate::signal::{Signal, Signals};
-use crate::usermgmt::authenticate;
+use crate::usermgmt::{authenticate, AccountSession};
 
 mod httputil;
 mod signal;
@@ -76,6 +76,15 @@ async fn main() -> eyre::Result<()> {
         .and(warp::body::json::<crate::usermgmt::CreateSessionQ>())
         .and(pool.clone())
         .and_then(move |q, pool| crate::usermgmt::create_session(q, pool, pepper, domain));
+    let get_session_account = warp::path!("v1" / "sessions")
+        .and(warp::get())
+        .and(authenticate.clone())
+        .and_then(crate::usermgmt::get_session_account);
+    let delete_session = warp::path!("v1" / "sessions")
+        .and(warp::delete())
+        .and(authenticate.clone())
+        .and(pool.clone())
+        .and_then(move |session, pool| crate::usermgmt::delete_session(session, pool, domain));
 
     let get_signals = warp::path!("v1" / "signals")
         .and(warp::get())
@@ -103,6 +112,8 @@ async fn main() -> eyre::Result<()> {
     warp::serve(
         create_account
             .or(create_session)
+            .or(get_session_account)
+            .or(delete_session)
             .or(get_signals)
             .or(patch_signals)
             .or(get_tags)
@@ -120,8 +131,8 @@ struct GetSignalsQ {
     url: String,
 }
 
-async fn get_signals(uid: i64, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
-    Signals::get(uid, q.url, &pool)
+async fn get_signals(account: AccountSession, q: GetSignalsQ, pool: DB) -> eyre::Result<Signals> {
+    Signals::get(account.id, q.url, &pool)
         .await
         .wrap_err("failed to get signals")
 }
@@ -138,24 +149,24 @@ struct PatchSignalsQ {
     erase: Vec<String>,
 }
 
-async fn patch_signals(uid: i64, q: PatchSignalsQ, pool: DB) -> eyre::Result<Empty> {
+async fn patch_signals(account: AccountSession, q: PatchSignalsQ, pool: DB) -> eyre::Result<Empty> {
     for tag in q.add {
         println!("add {}", &tag);
-        Signal::set(uid, &q.url, &tag, true, &pool)
+        Signal::set(account.id, &q.url, &tag, true, &pool)
             .await
             .wrap_err("failed to add signal")?
     }
 
     for tag in q.rm {
         println!("rm {}", &tag);
-        Signal::set(uid, &q.url, &tag, false, &pool)
+        Signal::set(account.id, &q.url, &tag, false, &pool)
             .await
             .wrap_err("failed to rm signal")?
     }
 
     for tag in q.erase {
         println!("erase {}", &tag);
-        Signal::erase(uid, &q.url, &tag, &pool)
+        Signal::erase(account.id, &q.url, &tag, &pool)
             .await
             .wrap_err("failed to erase signal")?
     }

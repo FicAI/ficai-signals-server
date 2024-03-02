@@ -30,7 +30,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EmptyObject"
+                $ref: "#/components/schemas/Account"
         '400':
           description: Bad request.
           content:
@@ -62,13 +62,53 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/EmptyObject"
+                $ref: "#/components/schemas/Account"
         '400':
           description: Bad request.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      summary: Get current account info.
+      operationId: get_session_account
+      tags:
+        - sessions
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        '403':
+          description: Forbidden.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: Delete a session (log out).
+      operationId: delete_session
+      tags:
+        - sessions
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptyObject"
         '403':
           description: Forbidden.
           content:
@@ -237,6 +277,21 @@ components:
           description: Account password.
           type: string
           minLength: 8
+    Account:
+      description: Information about an account.
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          description: The unique account id.
+          type: integer
+          format: int64
+        email:
+          description: The email account associated with this account. Must be unique.
+          type: string
+          format: email
     Signal:
       description: Signal information of a tag for a specific fic.
       type: object

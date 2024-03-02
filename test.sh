@@ -8,6 +8,7 @@ TEST_EMAIL1="${TEST_TS}.1@example.com"
 TEST_EMAIL2="${TEST_TS}.2@example.com"
 TEST_URL="https://forums.sufficientvelocity.com/threads/$TEST_TS/"
 TEST_TAG="tag_${TEST_TS}"
+TEST_UID="none"
 
 DEBUG=no
 
@@ -94,6 +95,14 @@ assertError() {
   assertEquals 'error msg' "$1" "$( show_output | jq -r .error.message )"
 }
 
+extractUid() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".id"
+}
+
+extractEmail() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".email"
+}
+
 extractSignal() {
   <"$SHUNIT_TMPDIR/out" jq -r ".signals[]|select(.tag==\"$1\")"
 }
@@ -173,6 +182,13 @@ testUnauthorizedGet() {
   assertError 'forbidden'
 }
 
+testUnauthorizedGetSessionAccount() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 403 Forbidden'
+  assertError 'forbidden'
+}
+
 testCreateAccountInvalidJSON() {
   request "http://$FICAI_LISTEN/v1/accounts" \
     -X POST -H "Content-Type: application/json" --data-binary "{"
@@ -194,8 +210,9 @@ testCreateAccount() {
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\",\"betaKey\":\"$FICAI_BETA_KEY\"}"
 
   assertStatus 'HTTP/1.1 201 Created'
-  assertEquals '{}' "$( show_output )"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  TEST_UID="$( extractUid )"
 }
 
 testCreateAccountSecondTime() {
@@ -302,13 +319,41 @@ testCreateSessionInvalidJSON() {
   assertError 'bad request body'
 }
 
+testGetSessionAccount() {
+  request "http://$FICAI_LISTEN/v1/sessions"
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
+}
+
+testDeleteSession() {
+  assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertStatus 'HTTP/1.1 200 OK'
+  assertEquals "{}" "$( show_output )"
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
+testDeleteSessionSecondTime() {
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+  request "http://$FICAI_LISTEN/v1/sessions" -X DELETE
+
+  assertStatus 'HTTP/1.1 403 Forbidden'
+  assertError 'forbidden'
+  assertFalse "cookie must not be set" "grep -q FicAiSession test.cookies"
+}
+
 testCreateSession() {
   rm test.cookies
   request "http://$FICAI_LISTEN/v1/sessions" \
     -X POST -H "Content-Type: application/json" --data-binary "{\"email\":\"$TEST_EMAIL1\",\"password\":\"pass\"}"
 
   assertStatus 'HTTP/1.1 200 OK'
-  assertEquals '{}' "$( show_output )"
+  assertEquals "$TEST_EMAIL1" "$( extractEmail )"
+  assertEquals "$TEST_UID" "$( extractUid )"
   assertTrue "cookie must be set" "grep -q FicAiSession test.cookies"
 }
 
