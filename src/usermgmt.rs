@@ -203,7 +203,7 @@ pub async fn delete_session(
     pool: DB,
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
-    let rows_affected = sqlx::query("delete from session where id = ")
+    let rows_affected = sqlx::query("delete from session where id = $1")
         .bind(&session.session_id)
         .execute(&pool)
         .await
