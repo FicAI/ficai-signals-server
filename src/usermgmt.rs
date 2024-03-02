@@ -223,11 +223,16 @@ pub async fn delete_session(
     }
 }
 
-pub fn authenticate(db: DB) -> impl Filter<Extract = (AccountSession,), Error = Rejection> + Clone {
+pub fn optional_authenticate(
+    db: DB,
+) -> impl Filter<Extract = (Option<AccountSession>,), Error = Rejection> + Clone {
     warp::cookie::optional(SESSION_COOKIE_NAME).and_then(move |cookie: Option<String>| {
         let db = db.clone();
         async move {
-            let cookie = cookie.ok_or_else(|| warp::reject::custom(Forbidden))?;
+            let cookie = match cookie {
+                Some(cookie) => cookie,
+                None => return Ok(None),
+            };
             let cookie = base64ct::Base64Unpadded::decode_vec(&cookie)
                 .map_err(|_| warp::reject::custom(BadRequest("invalid auth cookie".into())))?;
 
@@ -241,16 +246,21 @@ pub fn authenticate(db: DB) -> impl Filter<Extract = (AccountSession,), Error = 
                 where s.id = $1"#,
             )
             .bind(&cookie)
-            .fetch_one(&db)
+            .fetch_optional(&db)
             .await;
             match row {
                 Ok(account_session) => Ok(account_session),
-                Err(sqlx::error::Error::RowNotFound) => Err(warp::reject::custom(Forbidden)),
                 Err(e) => {
                     eprintln!("{:?}", e);
                     Err(warp::reject::custom(InternalError))
                 }
             }
         }
+    })
+}
+
+pub fn authenticate(db: DB) -> impl Filter<Extract = (AccountSession,), Error = Rejection> + Clone {
+    optional_authenticate(db).and_then(|account_session: Option<AccountSession>| async {
+        account_session.ok_or_else(|| warp::reject::custom(Forbidden))
     })
 }
