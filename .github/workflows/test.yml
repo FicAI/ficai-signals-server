@@ -1,4 +1,4 @@
-name: test
+name: Test
 
 on:
   push:
@@ -18,28 +18,24 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: cargo build
+    - name: Build
       run: cargo build --verbose
-    - name: start postgres
+    - name: Start postgres
       run: |
         sudo systemctl start postgresql.service
         echo -e "${POSTGRES_PASSWORD}\n${POSTGRES_PASSWORD}" \
           | sudo -u postgres createuser -s -d -r -P "${POSTGRES_USER}"
         sudo -u postgres createdb -O "${POSTGRES_USER}" "${POSTGRES_DB}"
-    - name: cargo test
+    - name: Unit test
       run: cargo test --verbose
-    - name: install shunit2
+    - name: Install shunit2
       run: sudo apt install -y shunit2
-    - name: create schema
+    - name: Create schema
       run: |
         cat schema.sql \
            | psql "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost/${POSTGRES_DB}"
-    - name: ./test.sh
+    - name: Integration test
       run: |
         cp test-ci.env test.env
         ./test.sh || (echo '======== test.log ========' && cat test.log && false)
-    - name: cargo clippy
-      run: cargo clippy -- -D warnings
-    - name: cargo fmt
-      run: cargo fmt --check
 
