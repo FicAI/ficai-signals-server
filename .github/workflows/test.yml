@@ -25,7 +25,8 @@ jobs:
         sudo systemctl start postgresql.service
         echo -e "${POSTGRES_PASSWORD}\n${POSTGRES_PASSWORD}" \
           | sudo -u postgres createuser -s -d -r -P "${POSTGRES_USER}"
-        createdb "${POSTGRES_DB}"
+        echo "${POSTGRES_PASSWORD}" \
+          | createdb -U "${POSTGRES_USER}" "${POSTGRES_DB}"
     - name: cargo test
       run: cargo test --verbose
     - name: install shunit2
