@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  POSTGRES_DB: ficai_db
+  POSTGRES_DB: ficai_database
   POSTGRES_USER: ficai_admin
   POSTGRES_PASSWORD: ficai_password
 
@@ -33,5 +33,5 @@ jobs:
     - name: ./test.sh
       run: |
         cp test-ci.env test.env
-        ./test.sh
+        ./test.sh || (cat test.log && false)
 
