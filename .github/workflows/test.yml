@@ -38,4 +38,8 @@ jobs:
       run: |
         cp test-ci.env test.env
         ./test.sh || (echo '======== test.log ========' && cat test.log && false)
+    - name: cargo clippy
+      run: cargo clippy -- -D warnings
+    - name: cargo fmt
+      run: cargo fmt --check
 
