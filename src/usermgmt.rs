@@ -203,7 +203,7 @@ pub async fn delete_session(
     pool: DB,
     domain: &str,
 ) -> Result<Response<Body>, Rejection> {
-    if 1 == sqlx::query("delete from session where id = $1")
+    let rows_affected = sqlx::query("delete from session where id = ")
         .bind(&session.session_id)
         .execute(&pool)
         .await
@@ -211,8 +211,8 @@ pub async fn delete_session(
             eprintln!("error deleting session: {:#?}", e);
             warp::reject::custom(InternalError)
         })?
-        .rows_affected()
-    {
+        .rows_affected();
+    if 1 == rows_affected {
         Ok(json(&Empty {})
             .pipe(|r| with_header(r, SET_COOKIE, session.to_cookie_removal(domain).to_string()))
             .into_response())
