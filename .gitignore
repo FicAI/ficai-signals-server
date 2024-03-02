@@ -3,6 +3,7 @@
 
 /target
 
+/.env
 /test.env
 /test.log
 /test.cookies

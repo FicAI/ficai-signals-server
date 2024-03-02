@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+  POSTGRES_DB: ficai_database
+  POSTGRES_USER: ficai_admin
+  POSTGRES_PASSWORD: ficai_password
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose
+    - name: Start postgres
+      run: |
+        sudo systemctl start postgresql.service
+        echo -e "${POSTGRES_PASSWORD}\n${POSTGRES_PASSWORD}" \
+          | sudo -u postgres createuser -s -d -r -P "${POSTGRES_USER}"
+        sudo -u postgres createdb -O "${POSTGRES_USER}" "${POSTGRES_DB}"
+    - name: Unit test
+      run: cargo test --verbose
+    - name: Install shunit2
+      run: sudo apt install -y shunit2
+    - name: Create schema
+      run: |
+        cat schema.sql \
+           | psql "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost/${POSTGRES_DB}"
+    - name: Integration test
+      run: |
+        cp test-ci.env test.env
+        ./test.sh || (echo '======== test.log ========' && cat test.log && false)
+

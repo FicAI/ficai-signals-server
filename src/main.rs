@@ -238,7 +238,7 @@ limit $2
             ",
         )
         .bind(&q.q)
-        .bind(&q.limit.unwrap_or(1000))
+        .bind(q.limit.unwrap_or(1000))
         .fetch_all(&pool)
         .await
         .wrap_err("failed to query tags")?,
