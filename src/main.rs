@@ -113,10 +113,9 @@ async fn main() -> eyre::Result<()> {
 
     let get_bex_version = warp::path!("v1" / "bex" / "versions" / String)
         .and(warp::get())
-        .then({
-            let pool = pool.clone();
-            move |v| get_bex_version(v, pool.clone(), bex_latest_version)
-        });
+        .and(pool.clone())
+        .then(|v, pool| get_bex_version(v, pool, bex_latest_version))
+        .then(reply_json);
 
     // todo: graceful shutdown
     warp::serve(
@@ -252,14 +251,9 @@ struct Bex {
     latest_version: String,
 }
 
-async fn get_bex_version(
-    v: String,
-    _pool: DB,
-    bex_latest_version: &str,
-) -> http::Response<hyper::Body> {
-    warp::reply::json(&Bex {
+async fn get_bex_version(v: String, _pool: DB, bex_latest_version: &str) -> eyre::Result<Bex> {
+    Ok(Bex {
         retired: v == "v0.0.0",
         latest_version: bex_latest_version.to_string(),
     })
-    .into_response()
 }
