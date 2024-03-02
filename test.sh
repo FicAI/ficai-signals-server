@@ -1,7 +1,7 @@
 #!/bin/bash
 
 source test.env
-export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY FICAI_BEX_CURRENT_VERSION
+export FICAI_LISTEN FICAI_DB_HOST FICAI_DB_PORT FICAI_DB_USERNAME FICAI_DB_PASSWORD FICAI_DB_DATABASE FICAI_PWD_PEPPER FICAI_DOMAIN FICAI_BETA_KEY FICAI_BEX_LATEST_VERSION
 
 TEST_TS="$( date +%s )"
 TEST_EMAIL1="${TEST_TS}.1@example.com"
@@ -111,8 +111,8 @@ extractRetired() {
   <"$SHUNIT_TMPDIR/out" jq -r ".retired"
 }
 
-extractCurrentVersion() {
-  <"$SHUNIT_TMPDIR/out" jq -r ".current_version"
+extractLatestVersion() {
+  <"$SHUNIT_TMPDIR/out" jq -r ".latest_version"
 }
 
 assertSignal() {
@@ -416,12 +416,12 @@ testGetBex() {
   request "http://$FICAI_LISTEN/v1/bex/versions/v0.1.0"
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals false "$( extractRetired )"
-  assertEquals "${FICAI_BEX_CURRENT_VERSION}" "$( extractCurrentVersion )"
+  assertEquals "${FICAI_BEX_LATEST_VERSION}" "$( extractLatestVersion )"
 
   request "http://$FICAI_LISTEN/v1/bex/versions/v0.0.0"
   assertStatus 'HTTP/1.1 200 OK'
   assertEquals true "$( extractRetired )"
-  assertEquals "${FICAI_BEX_CURRENT_VERSION}" "$( extractCurrentVersion )"
+  assertEquals "${FICAI_BEX_LATEST_VERSION}" "$( extractLatestVersion )"
 }
 
 source shunit2

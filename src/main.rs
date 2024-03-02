@@ -27,7 +27,7 @@ struct Config {
     pwd_pepper: String,
     domain: String,
     beta_key: String,
-    bex_current_version: String,
+    bex_latest_version: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -61,7 +61,7 @@ async fn main() -> eyre::Result<()> {
 
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
-    let bex_current_version: &'static str = Box::leak(cfg.bex_current_version.into_boxed_str());
+    let bex_latest_version: &'static str = Box::leak(cfg.bex_latest_version.into_boxed_str());
 
     let authenticate = authenticate(pool.clone());
     let optional_authenticate = optional_authenticate(pool.clone());
@@ -115,7 +115,7 @@ async fn main() -> eyre::Result<()> {
         .and(warp::get())
         .then({
             let pool = pool.clone();
-            move |v| get_bex_version(v, pool.clone(), bex_current_version)
+            move |v| get_bex_version(v, pool.clone(), bex_latest_version)
         });
 
     // todo: graceful shutdown
@@ -249,17 +249,17 @@ limit $2
 #[derive(Serialize)]
 struct Bex {
     retired: bool,
-    current_version: String,
+    latest_version: String,
 }
 
 async fn get_bex_version(
     v: String,
     _pool: DB,
-    bex_current_version: &str,
+    bex_latest_version: &str,
 ) -> http::Response<hyper::Body> {
     warp::reply::json(&Bex {
         retired: v == "v0.0.0",
-        current_version: bex_current_version.to_string(),
+        latest_version: bex_latest_version.to_string(),
     })
     .into_response()
 }

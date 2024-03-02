@@ -375,12 +375,12 @@ components:
       type: object
       required:
         - retired
-        - current_version
+        - latest_version
       properties:
         retired:
           description: Whether this version of the browser extension is no longer supported.
           type: boolean
-        current_version:
+        latest_version:
           description: The latest version of the browser extension that is available.
           type: string
           example: "v0.1.0-6e6c4b2"
