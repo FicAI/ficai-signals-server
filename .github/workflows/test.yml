@@ -30,8 +30,12 @@ jobs:
       run: cargo test --verbose
     - name: install shunit2
       run: sudo apt install -y shunit2
+    - name: create schema
+      run: |
+        cat schema.sql \
+           | psql "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost/${POSTGRES_DB}"
     - name: ./test.sh
       run: |
         cp test-ci.env test.env
-        ./test.sh || (cat test.log && false)
+        ./test.sh || (echo '======== test.log ========' && cat test.log && false)
 
