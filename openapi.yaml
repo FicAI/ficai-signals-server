@@ -210,6 +210,26 @@ paths:
                     type: array
                     items:
                       type: string
+  /bex/versions/{version}:
+    get:
+      summary: Get information about a specific browser extension version.
+      operationId: getBexVersion
+      tags:
+        - bex
+      parameters:
+        - name: version
+          in: path
+          required: true
+          description: The version of the extension to retrieve information about.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Information about a specific browser version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BexVersion"
 components:
   securitySchemes:
     cookieAuth:
@@ -350,3 +370,17 @@ components:
           type: array
           items:
             type: string
+    BexVersion:
+      description: Information about a specific browser extension version.
+      type: object
+      required:
+        - retired
+        - latest_version
+      properties:
+        retired:
+          description: Whether this version of the browser extension is no longer supported.
+          type: boolean
+        latest_version:
+          description: The latest version of the browser extension that is available.
+          type: string
+          example: "v0.1.0-6e6c4b2"

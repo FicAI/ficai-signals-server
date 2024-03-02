@@ -27,6 +27,7 @@ struct Config {
     pwd_pepper: String,
     domain: String,
     beta_key: String,
+    bex_latest_version: String,
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -60,6 +61,7 @@ async fn main() -> eyre::Result<()> {
 
     let domain: &'static str = Box::leak(cfg.domain.into_boxed_str());
     let beta_key: &'static str = Box::leak(cfg.beta_key.into_boxed_str());
+    let bex_latest_version: &'static str = Box::leak(cfg.bex_latest_version.into_boxed_str());
 
     let authenticate = authenticate(pool.clone());
     let optional_authenticate = optional_authenticate(pool.clone());
@@ -109,6 +111,12 @@ async fn main() -> eyre::Result<()> {
         .then(get_tags)
         .then(reply_json);
 
+    let get_bex_version = warp::path!("v1" / "bex" / "versions" / String)
+        .and(warp::get())
+        .and(pool.clone())
+        .then(|v, pool| get_bex_version(v, pool, bex_latest_version))
+        .then(reply_json);
+
     // todo: graceful shutdown
     warp::serve(
         create_account
@@ -118,6 +126,7 @@ async fn main() -> eyre::Result<()> {
             .or(get_signals)
             .or(patch_signals)
             .or(get_tags)
+            .or(get_bex_version)
             .recover(recover_custom),
     )
     .run(cfg.listen)
@@ -233,5 +242,18 @@ limit $2
         .fetch_all(&pool)
         .await
         .wrap_err("failed to query tags")?,
+    })
+}
+
+#[derive(Serialize)]
+struct Bex {
+    retired: bool,
+    latest_version: String,
+}
+
+async fn get_bex_version(v: String, _pool: DB, bex_latest_version: &str) -> eyre::Result<Bex> {
+    Ok(Bex {
+        retired: v == "v0.0.0",
+        latest_version: bex_latest_version.to_string(),
     })
 }
