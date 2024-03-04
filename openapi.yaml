@@ -230,6 +230,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BexVersion"
+  /fics:
+    get:
+      summary: Get information about a specific fic.
+      operationId: getFic
+      tags:
+        - fics
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: The URL of the fic to retrieve information about.
+          schema:
+            type: string
+          example: "https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"
+      responses:
+        '200':
+          description: Information about a specific fic.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Fic"
+        '400':
+          description: Bad request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     cookieAuth:
@@ -384,3 +417,22 @@ components:
           description: The latest version of the browser extension that is available.
           type: string
           example: "v0.1.0-6e6c4b2"
+    Fic:
+      description: Information about a specific fic.
+      type: object
+      required:
+        - id
+        - title
+      properties:
+        id:
+          description: The unique identifier for this fic.
+          type: string
+          example: 'NtePoQrV'
+        title:
+          description: The fic's title.
+          type: string
+          example: "Nemesis"
+        source:
+          description: The fic's source URL.
+          type: string
+          example: "https://forums.spacebattles.com/threads/nemesis-worm-au.747148/"

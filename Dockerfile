@@ -20,5 +20,7 @@ RUN cargo build --release --bin ficai-signals-server
 
 FROM debian:bullseye-slim AS runtime
 WORKDIR app
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt update && apt install -y ca-certificates libssl-dev
 COPY --from=builder /app/target/release/ficai-signals-server /usr/local/bin
 ENTRYPOINT ["/usr/local/bin/ficai-signals-server"]
